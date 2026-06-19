@@ -1,13 +1,16 @@
+import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
-    Drawer,
-    List,
-    ListItemButton,
-    ListItemIcon,
-    ListItemText,
-    Toolbar,
-    Box,
-    Typography,
-    Avatar
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Toolbar,
+  Box,
+  Typography,
+  Avatar,
+  Tooltip
 } from "@mui/material";
 
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -20,100 +23,151 @@ const expandedWidth = 250;
 const collapsedWidth = 80;
 
 const menuItems = [
-    { text: "Dashboard", icon: <DashboardIcon /> },
-    { text: "Students", icon: <SchoolIcon /> },
-    { text: "Employers", icon: <BusinessIcon /> },
-    { text: "Jobs", icon: <WorkIcon /> },
-    { text: "Applications", icon: <AssignmentIcon /> }
+  {
+    text: "Dashboard",
+    icon: <DashboardIcon />,
+    path: "/"
+  },
+  {
+    text: "Students",
+    icon: <SchoolIcon />,
+    path: "/students"
+  },
+  {
+    text: "Employers",
+    icon: <BusinessIcon />,
+    path: "/employers"
+  },
+  {
+    text: "Jobs",
+    icon: <WorkIcon />,
+    path: "/jobs"
+  },
+  {
+    text: "Applications",
+    icon: <AssignmentIcon />,
+    path: "/applications"
+  }
 ];
-
 function Sidebar({ open }) {
+  const navigate = useNavigate();
+  const location = useLocation();
 
-    return (
-        <Drawer
-            variant="permanent"
-            sx={{
-                width: open ? expandedWidth : collapsedWidth,
-                flexShrink: 0,
+  return (
+    <Drawer
+      variant="permanent"
+      sx={{
+        width: open ? expandedWidth : collapsedWidth,
+        flexShrink: 0,
+        transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
+        "& .MuiDrawer-paper": {
+          width: open ? expandedWidth : collapsedWidth,
+          boxSizing: "border-box",
+          transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
+          overflowX: "hidden",
+          backgroundColor: "#0A0E1A",
+          borderRight: "1px solid #1C2333",
+          color: "#fff"
+        }
+      }}
+    >
+      <Toolbar sx={{ minHeight: 66 }} />
 
-                "& .MuiDrawer-paper": {
-                    width: open ? expandedWidth : collapsedWidth,
-                    boxSizing: "border-box",
-                    transition: "0.3s",
-                    overflowX: "hidden",
-                    backgroundColor: "#111827",
-                    borderRight: "1px solid #1E293B"
-                }
-            }}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: open ? "flex-start" : "center",
+          gap: 1.5,
+          px: 2,
+          py: 2.5
+        }}
+      >
+        <Avatar
+          sx={{
+            background: "linear-gradient(135deg, #6366F1, #A855F7)",
+            width: 40,
+            height: 40,
+            fontWeight: 700,
+            boxShadow: "0 4px 14px rgba(59,130,246,0.35)"
+          }}
         >
+          J
+        </Avatar>
 
-            <Toolbar />
+        {open && (
+          <Typography variant="h6" fontWeight={700}>
+            JobMatrix
+          </Typography>
+        )}
+      </Box>
 
-            <Box
-                sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: open ? "flex-start" : "center",
-                    gap: 2,
-                    p: 2
-                }}
+      <List sx={{ px: 1 }}>
+        {menuItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          const button = (
+            <ListItemButton
+              key={item.text}
+             onClick={() => navigate(item.path)}
+              sx={{
+                mx: 0.75,
+                borderRadius: 2.5,
+                mb: 0.75,
+                py: 1.1,
+                position: "relative",
+                color: isActive ? "#F8FAFC" : "#94A3B8",
+                backgroundColor: isActive ? "rgba(59,130,246,0.12)" : "transparent",
+                transition: "all 0.2s ease",
+                "&:hover": {
+                  backgroundColor: isActive ? "rgba(59,130,246,0.16)" : "#161D2E",
+                  transform: "translateX(2px)"
+                },
+                "&::before": isActive
+                  ? {
+                      content: '""',
+                      position: "absolute",
+                      left: -9,
+                      top: "20%",
+                      height: "60%",
+                      width: 3,
+                      borderRadius: 4,
+                      background: "linear-gradient(180deg, #6366F1, #A855F7)"
+                    }
+                  : {}
+              }}
             >
+              <ListItemIcon
+                sx={{
+                  color: isActive ? "#818CF8" : "#64748B",
+                  minWidth: 0,
+                  mr: open ? 2.5 : "auto",
+                  justifyContent: "center",
+                  transition: "color 0.2s ease"
+                }}
+              >
+                {item.icon}
+              </ListItemIcon>
 
-                <Avatar sx={{ bgcolor: "#3B82F6" }}>
-                    J
-                </Avatar>
+              {open && (
+                <ListItemText
+                  primary={item.text}
+                  primaryTypographyProps={{ fontSize: 15, fontWeight: 600 }}
+                />
+              )}
+            </ListItemButton>
+          );
 
-                {open && (
-                    <Typography
-                        variant="h6"
-                        fontWeight={700}
-                    >
-                        JobMatrix
-                    </Typography>
-                )}
-
-            </Box>
-
-            <List>
-
-                {menuItems.map((item) => (
-
-                    <ListItemButton
-                        key={item.text}
-                        sx={{
-                            mx: 1,
-                            borderRadius: 3,
-                            mb: 1,
-
-                            "&:hover": {
-                                backgroundColor: "#1E293B"
-                            }
-                        }}
-                    >
-
-                        <ListItemIcon
-                            sx={{
-                                color: "#3B82F6",
-                                minWidth: 0,
-                                mr: open ? 3 : "auto",
-                                justifyContent: "center"
-                            }}
-                        >
-                            {item.icon}
-                        </ListItemIcon>
-
-                        {open && (
-                            <ListItemText primary={item.text} />
-                        )}
-
-                    </ListItemButton>
-
-                ))}
-
-            </List>
-
-        </Drawer>
-    );
+          return open ? (
+            button
+          ) : (
+            <Tooltip key={item.text} title={item.text} placement="right">
+              {button}
+            </Tooltip>
+          );
+        })}
+      </List>
+    </Drawer>
+  );
 }
 
 export default Sidebar;
