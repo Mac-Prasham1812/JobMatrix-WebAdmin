@@ -29,7 +29,11 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { DataGrid } from "@mui/x-data-grid";
 import { collection, getDocs, deleteDoc, doc } from "firebase/firestore";
 
-import { db } from "../firebase/firebase";
+import { db, auth } from "../firebase/firebase";
+
+// Update this once the backend is deployed on Render (Phase 7).
+// For now it points at the local Node/Express server.
+const API_BASE_URL = "https://jobmatrix-backend-cd5v.onrender.com";
 
 function formatTime(value) {
   if (!value) return "";
@@ -62,6 +66,7 @@ function Applications() {
   const [filteredApplications, setFilteredApplications] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [resumeLoadingId, setResumeLoadingId] = useState(null);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -112,6 +117,38 @@ function Applications() {
       console.log("Error loading applications:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // resumeLink now stores the B2 file key, not a direct URL. A fresh signed
+  // URL must be fetched from the backend right before opening.
+  const handleOpenResume = async (row) => {
+    const key = row.resumeLink;
+    if (!key) return;
+
+    setResumeLoadingId(row.id);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.log("Not logged in");
+        return;
+      }
+      const token = await user.getIdToken(true);
+
+      const res = await fetch(`${API_BASE_URL}/resume/${key}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) throw new Error("Failed to fetch resume URL");
+
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      console.log("Error opening resume:", error);
+    } finally {
+      setResumeLoadingId(null);
     }
   };
 
@@ -274,10 +311,15 @@ function Applications() {
           <Button
             variant="contained"
             size="small"
-            startIcon={<DescriptionIcon sx={{ fontSize: 16 }} />}
-            href={params.value}
-            target="_blank"
-            rel="noreferrer"
+            startIcon={
+              resumeLoadingId === params.row.id ? (
+                <CircularProgress size={14} sx={{ color: "#fff" }} />
+              ) : (
+                <DescriptionIcon sx={{ fontSize: 16 }} />
+              )
+            }
+            disabled={resumeLoadingId === params.row.id}
+            onClick={() => handleOpenResume(params.row)}
             sx={{
               textTransform: "none",
               borderRadius: 2,
@@ -290,7 +332,7 @@ function Applications() {
               }
             }}
           >
-            Open Resume
+            {resumeLoadingId === params.row.id ? "Opening..." : "Open Resume"}
           </Button>
         ) : (
           <Typography sx={{ color: "text.secondary", fontSize: 13 }}>

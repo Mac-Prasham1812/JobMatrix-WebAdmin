@@ -44,6 +44,10 @@ function Login() {
         setLoading(false);
         return;
       }
+
+    const token = await result.user.getIdToken();
+    console.log("FIREBASE TOKEN:", token);
+    
     } catch (err) {
       setError(err.message || "Login failed. Please check your credentials.");
       setLoading(false);
