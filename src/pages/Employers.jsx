@@ -8,23 +8,35 @@ import {
   InputAdornment,
   CircularProgress,
   Chip,
-  Avatar,
-  Stack
+  Stack,
+  Tooltip,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Divider,
+  Fade
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
 import BusinessIcon from "@mui/icons-material/Business";
 import ApartmentIcon from "@mui/icons-material/Apartment";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 
 import { DataGrid } from "@mui/x-data-grid";
 import { collection, getDocs, query, where } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
+import UserAvatar from "../components/UserAvatar";
 
-function initials(name) {
-  if (!name) return "?";
-  const parts = name.trim().split(" ");
-  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
+function formatTime(value) {
+  if (!value) return "-";
+  if (typeof value?.toMillis === "function") return new Date(value.toMillis()).toLocaleString();
+  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000).toLocaleString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
 }
 
 function Employers() {
@@ -32,6 +44,8 @@ function Employers() {
   const [filteredEmployers, setFilteredEmployers] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selectedEmployer, setSelectedEmployer] = useState(null);
+  const [viewOpen, setViewOpen] = useState(false);
 
   useEffect(() => {
     loadEmployers();
@@ -61,13 +75,32 @@ function Employers() {
         ...doc.data()
       }));
 
-      setEmployers(data);
-      setFilteredEmployers(data);
+      // Count jobs per employer (matched by uid via "postedBy" field).
+      // NOTE: verify this field name matches your Jobs.jsx / AddJobActivity schema.
+      const jobsSnapshot = await getDocs(collection(db, "jobs"));
+      const countMap = {};
+      jobsSnapshot.docs.forEach((d) => {
+        const pid = d.data().employerId;
+        if (pid) countMap[pid] = (countMap[pid] || 0) + 1;
+      });
+
+      const merged = data.map((e) => ({
+        ...e,
+        jobsCount: countMap[e.uid] || 0
+      }));
+
+      setEmployers(merged);
+      setFilteredEmployers(merged);
     } catch (error) {
       console.log("Error loading employers:", error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleView = (employer) => {
+    setSelectedEmployer(employer);
+    setViewOpen(true);
   };
 
   const stats = useMemo(() => ({ total: employers.length }), [employers]);
@@ -80,19 +113,7 @@ function Employers() {
       minWidth: 200,
       renderCell: (params) => (
         <Stack direction="row" spacing={1.3} alignItems="center" sx={{ height: "100%" }}>
-          <Avatar
-            sx={{
-              width: 30,
-              height: 30,
-              fontSize: 12,
-              fontWeight: 700,
-              bgcolor: "rgba(168,85,247,0.16)",
-              color: "secondary.main",
-              border: "1px solid rgba(168,85,247,0.3)"
-            }}
-          >
-            {initials(params.value)}
-          </Avatar>
+          <UserAvatar name={params.value} photoUrl={params.row.photoUrl} tone="secondary" />
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>
             {params.value || "-"}
           </Typography>
@@ -130,10 +151,44 @@ function Employers() {
       )
     },
     {
-      field: "uid",
-      headerName: "UID",
-      flex: 2,
-      minWidth: 260
+      field: "jobsCount",
+      headerName: "Jobs Posted",
+      flex: 0.8,
+      minWidth: 130,
+      renderCell: (params) => (
+        <Chip
+          label={params.value ?? 0}
+          size="small"
+          sx={{
+            bgcolor: "rgba(6,182,212,0.12)",
+            color: "info.main",
+            border: "1px solid rgba(6,182,212,0.22)",
+            fontWeight: 700
+          }}
+        />
+      )
+    },
+    {
+      field: "actions",
+      headerName: "Actions",
+      minWidth: 90,
+      sortable: false,
+      filterable: false,
+      renderCell: (params) => (
+        <Tooltip title="View details">
+          <IconButton
+            onClick={() => handleView(params.row)}
+            size="small"
+            sx={{
+              color: "secondary.main",
+              transition: "transform 0.15s ease, background-color 0.15s ease",
+              "&:hover": { bgcolor: "rgba(168,85,247,0.14)", transform: "scale(1.12)" }
+            }}
+          >
+            <VisibilityIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )
     }
   ];
 
@@ -297,6 +352,43 @@ function Employers() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        fullWidth
+        maxWidth="sm"
+        TransitionComponent={Fade}
+        transitionDuration={220}
+        PaperProps={{
+          sx: { backgroundColor: "#0D1220", color: "#fff", border: "1px solid", borderColor: "divider", borderRadius: 3 }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Employer Details</DialogTitle>
+        <DialogContent>
+          <Divider sx={{ borderColor: "divider", mb: 2 }} />
+          {selectedEmployer && (
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
+                <UserAvatar name={selectedEmployer.name} photoUrl={selectedEmployer.photoUrl} size={48} tone="secondary" />
+                <Box>
+                  <Typography fontWeight={700}>{selectedEmployer.name || "-"}</Typography>
+                  <Typography fontSize={13} color="text.secondary">{selectedEmployer.role || "Employer"}</Typography>
+                </Box>
+              </Stack>
+              <Typography><b>Email:</b> {selectedEmployer.email || "-"}</Typography>
+              <Typography><b>Phone:</b> {selectedEmployer.phone || "-"}</Typography>
+              <Typography><b>Jobs Posted:</b> {selectedEmployer.jobsCount ?? 0}</Typography>
+              <Typography><b>Last Active:</b> {formatTime(selectedEmployer.lastSeen)}</Typography>
+              <Typography><b>Joined:</b> {formatTime(selectedEmployer.createdAt)}</Typography>
+              <Typography sx={{ wordBreak: "break-word" }}><b>UID:</b> {selectedEmployer.uid || "-"}</Typography>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setViewOpen(false)} variant="contained">Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

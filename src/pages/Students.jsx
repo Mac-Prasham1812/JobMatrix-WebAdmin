@@ -16,9 +16,9 @@ import {
   Button,
   Stack,
   Divider,
-  Avatar,
   Tooltip,
-  Fade
+  Fade,
+  LinearProgress
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
@@ -31,11 +31,24 @@ import { DataGrid } from "@mui/x-data-grid";
 import { collection, getDocs, query, where, deleteDoc, doc } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
+import UserAvatar from "../components/UserAvatar";
 
-function initials(name) {
-  if (!name) return "?";
-  const parts = name.trim().split(" ");
-  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
+function formatTime(value) {
+  if (!value) return "-";
+  if (typeof value?.toMillis === "function") return new Date(value.toMillis()).toLocaleString();
+  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000).toLocaleString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
+}
+
+// 4 fields, 25% each — Skills, Experience, Phone, Photo
+function completeness(student) {
+  let score = 0;
+  if (student.skills && (Array.isArray(student.skills) ? student.skills.length : String(student.skills).trim())) score += 25;
+  if (student.experience && String(student.experience).trim()) score += 25;
+  if (student.phone && String(student.phone).trim()) score += 25;
+  if (student.photoUrl && String(student.photoUrl).trim()) score += 25;
+  return score;
 }
 
 function Students() {
@@ -84,8 +97,21 @@ function Students() {
         ...d.data()
       }));
 
-      setStudents(data);
-      setFilteredStudents(data);
+      // Count applications per student (matched by uid) in one pass.
+      const appsSnapshot = await getDocs(collection(db, "applications"));
+      const countMap = {};
+      appsSnapshot.docs.forEach((d) => {
+        const sid = d.data().studentId;
+        if (sid) countMap[sid] = (countMap[sid] || 0) + 1;
+      });
+
+      const merged = data.map((s) => ({
+        ...s,
+        applicationsCount: countMap[s.uid] || 0
+      }));
+
+      setStudents(merged);
+      setFilteredStudents(merged);
     } catch (error) {
       console.log("Error loading students:", error);
     } finally {
@@ -151,19 +177,7 @@ function Students() {
       minWidth: 200,
       renderCell: (params) => (
         <Stack direction="row" spacing={1.3} alignItems="center" sx={{ height: "100%" }}>
-          <Avatar
-            sx={{
-              width: 30,
-              height: 30,
-              fontSize: 12,
-              fontWeight: 700,
-              bgcolor: "rgba(99,102,241,0.16)",
-              color: "primary.light",
-              border: "1px solid rgba(99,102,241,0.3)"
-            }}
-          >
-            {initials(params.value)}
-          </Avatar>
+          <UserAvatar name={params.value} photoUrl={params.row.photoUrl} tone="primary" />
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>
             {params.value || "-"}
           </Typography>
@@ -181,6 +195,34 @@ function Students() {
       headerName: "Phone",
       flex: 1,
       minWidth: 140
+    },
+    {
+      field: "profileCompleteness",
+      headerName: "Profile %",
+      flex: 1,
+      minWidth: 150,
+      valueGetter: (value, row) => completeness(row),
+      renderCell: (params) => {
+        const pct = params.value;
+        const color = pct === 100 ? "#22C55E" : pct >= 50 ? "#F59E0B" : "#EF4444";
+        return (
+          <Box sx={{ width: "100%", pr: 1 }}>
+            <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.3 }}>
+              <Typography sx={{ fontSize: 12, color: "text.secondary" }}>{pct}%</Typography>
+            </Stack>
+            <LinearProgress
+              variant="determinate"
+              value={pct}
+              sx={{
+                height: 6,
+                borderRadius: 3,
+                bgcolor: "rgba(148,163,184,0.15)",
+                "& .MuiLinearProgress-bar": { bgcolor: color, borderRadius: 3 }
+              }}
+            />
+          </Box>
+        );
+      }
     },
     {
       field: "role",
@@ -201,10 +243,22 @@ function Students() {
       )
     },
     {
-      field: "uid",
-      headerName: "UID",
-      flex: 2,
-      minWidth: 260
+      field: "applicationsCount",
+      headerName: "Applications",
+      flex: 0.8,
+      minWidth: 130,
+      renderCell: (params) => (
+        <Chip
+          label={params.value ?? 0}
+          size="small"
+          sx={{
+            bgcolor: "rgba(6,182,212,0.12)",
+            color: "info.main",
+            border: "1px solid rgba(6,182,212,0.22)",
+            fontWeight: 700
+          }}
+        />
+      )
     },
     {
       field: "actions",
@@ -435,18 +489,7 @@ function Students() {
           {selectedStudent && (
             <Stack spacing={1.5}>
               <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-                <Avatar
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    fontWeight: 700,
-                    bgcolor: "rgba(99,102,241,0.16)",
-                    color: "primary.light",
-                    border: "1px solid rgba(99,102,241,0.3)"
-                  }}
-                >
-                  {initials(selectedStudent.name)}
-                </Avatar>
+                <UserAvatar name={selectedStudent.name} photoUrl={selectedStudent.photoUrl} size={48} tone="primary" />
                 <Box>
                   <Typography fontWeight={700}>{selectedStudent.name || "-"}</Typography>
                   <Typography fontSize={13} color="text.secondary">
@@ -456,6 +499,10 @@ function Students() {
               </Stack>
               <Typography><b>Email:</b> {selectedStudent.email || "-"}</Typography>
               <Typography><b>Phone:</b> {selectedStudent.phone || "-"}</Typography>
+              <Typography><b>Profile Completeness:</b> {completeness(selectedStudent)}%</Typography>
+              <Typography><b>Applications:</b> {selectedStudent.applicationsCount ?? 0}</Typography>
+              <Typography><b>Last Active:</b> {formatTime(selectedStudent.lastSeen)}</Typography>
+              <Typography><b>Joined:</b> {formatTime(selectedStudent.createdAt)}</Typography>
               <Typography sx={{ wordBreak: "break-word" }}><b>UID:</b> {selectedStudent.uid || "-"}</Typography>
               <Typography sx={{ wordBreak: "break-word" }}>
                 <b>Document ID:</b> {selectedStudent.id || "-"}

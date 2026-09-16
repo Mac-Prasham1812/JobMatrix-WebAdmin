@@ -16,7 +16,8 @@ import {
   DialogActions,
   Button,
   Divider,
-  Fade
+  Fade,
+  Stack
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
@@ -25,11 +26,15 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import DeleteIcon from "@mui/icons-material/Delete";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import PeopleIcon from "@mui/icons-material/People";
+import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 
 import { DataGrid } from "@mui/x-data-grid";
 import { collection, getDocs, deleteDoc, doc, query, where, getDoc } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
+import UserAvatar from "../components/UserAvatar";
 
 function formatTime(value) {
   if (!value) return "";
@@ -43,12 +48,32 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
 }
 
+function formatDateTime(value) {
+  if (!value) return "-";
+  const millis = typeof value === "number" ? value : null;
+  if (millis) return new Date(millis).toLocaleString();
+  if (typeof value?.toMillis === "function") return new Date(value.toMillis()).toLocaleString();
+  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000).toLocaleString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
+}
+
 function getTimeValue(value) {
   if (!value) return 0;
   if (typeof value?.toMillis === "function") return value.toMillis();
   if (typeof value?.seconds === "number") return value.seconds * 1000;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+// Skill-overlap match %, same logic as the Android job-alert matcher:
+// percentage of the job's required skills the student already has.
+function computeMatch(jobSkills, studentSkills) {
+  const job = (jobSkills || []).map((s) => String(s).toLowerCase().trim());
+  const student = new Set((studentSkills || []).map((s) => String(s).toLowerCase().trim()));
+  if (job.length === 0) return 0;
+  const hits = job.filter((s) => student.has(s)).length;
+  return Math.round((hits / job.length) * 100);
 }
 
 function Jobs() {
@@ -65,6 +90,11 @@ function Jobs() {
   const [applicantsJob, setApplicantsJob] = useState(null);
   const [applicants, setApplicants] = useState([]);
   const [applicantsLoading, setApplicantsLoading] = useState(false);
+
+  const [notifiedOpen, setNotifiedOpen] = useState(false);
+  const [notifiedJob, setNotifiedJob] = useState(null);
+  const [notifiedStudents, setNotifiedStudents] = useState([]);
+  const [notifiedLoading, setNotifiedLoading] = useState(false);
 
   useEffect(() => {
     loadJobs();
@@ -200,6 +230,61 @@ function Jobs() {
     }
   };
 
+  // Phase 2 — Job Alerts Insight: who got the "JobMatch" push for this job,
+  // their live skill-match %, and whether they've read the notification.
+  const handleViewNotified = async (job) => {
+    setNotifiedJob(job);
+    setNotifiedOpen(true);
+    setNotifiedLoading(true);
+
+    try {
+      const q = query(
+        collection(db, "notifications"),
+        where("jobId", "==", job.id),
+        where("type", "==", "JobMatch")
+      );
+      const snapshot = await getDocs(q);
+
+      const notifs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      const uniqueIds = [...new Set(notifs.map((n) => n.studentId).filter(Boolean))];
+      const studentMap = {};
+
+      await Promise.all(
+        uniqueIds.map(async (sid) => {
+          try {
+            const userSnap = await getDoc(doc(db, "users", sid));
+            studentMap[sid] = userSnap.exists() ? userSnap.data() : null;
+          } catch {
+            studentMap[sid] = null;
+          }
+        })
+      );
+
+      const enriched = notifs
+        .map((n) => {
+          const student = studentMap[n.studentId] || {};
+          return {
+            id: n.id,
+            studentId: n.studentId,
+            studentName: student.name || n.studentId || "Unknown student",
+            photoUrl: student.photoUrl,
+            isRead: !!n.isRead,
+            notifiedAt: n.createdAt,
+            matchPercent: computeMatch(job.skills, student.skills)
+          };
+        })
+        .sort((a, b) => b.matchPercent - a.matchPercent);
+
+      setNotifiedStudents(enriched);
+    } catch (error) {
+      console.log("Error loading notified students:", error);
+      setNotifiedStudents([]);
+    } finally {
+      setNotifiedLoading(false);
+    }
+  };
+
   const stats = useMemo(() => {
     const active = jobs.filter(
       (job) => (job.status || "Active").toLowerCase() === "active"
@@ -312,7 +397,7 @@ function Jobs() {
     {
       field: "actions",
       headerName: "Actions",
-      minWidth: 130,
+      minWidth: 170,
       sortable: false,
       filterable: false,
       renderCell: (params) => (
@@ -331,6 +416,23 @@ function Jobs() {
               }}
             >
               <VisibilityIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Notified students">
+            <IconButton
+              onClick={() => handleViewNotified(params.row)}
+              size="small"
+              sx={{
+                color: "#06B6D4",
+                transition: "transform 0.15s ease, background-color 0.15s ease",
+                "&:hover": {
+                  bgcolor: "rgba(6,182,212,0.14)",
+                  transform: "scale(1.12)"
+                }
+              }}
+            >
+              <NotificationsActiveIcon fontSize="small" />
             </IconButton>
           </Tooltip>
 
@@ -625,7 +727,7 @@ function Jobs() {
             </Box>
           ) : (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-              {applicants.map((app) => {
+              {applicants.map((app, i) => {
                 const status = (app.status || "Pending").toLowerCase();
                 let chipColor = "#F59E0B";
                 let chipBg = "rgba(245,158,11,0.14)";
@@ -650,7 +752,9 @@ function Jobs() {
                       justifyContent: "space-between",
                       alignItems: "center",
                       flexWrap: "wrap",
-                      gap: 1
+                      gap: 1,
+                      animation: "fadeUp 0.35s ease both",
+                      animationDelay: `${i * 0.05}s`
                     }}
                   >
                     <Box>
@@ -679,6 +783,126 @@ function Jobs() {
         </DialogContent>
         <DialogActions sx={{ p: 2.5 }}>
           <Button onClick={() => setApplicantsOpen(false)} variant="contained">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={notifiedOpen}
+        onClose={() => setNotifiedOpen(false)}
+        fullWidth
+        maxWidth="sm"
+        TransitionComponent={Fade}
+        transitionDuration={220}
+        PaperProps={{
+          sx: {
+            backgroundColor: "#0D1220",
+            color: "#fff",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 3
+          }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 1 }}>
+          <NotificationsActiveIcon sx={{ color: "#06B6D4" }} />
+          Notified Students
+          {notifiedJob?.title ? ` — ${notifiedJob.title}` : ""}
+        </DialogTitle>
+        <DialogContent>
+          <Divider sx={{ borderColor: "divider", mb: 2 }} />
+
+          {notifiedLoading ? (
+            <Box display="flex" flexDirection="column" alignItems="center" gap={1.5} py={5}>
+              <CircularProgress size={28} sx={{ color: "#06B6D4" }} />
+              <Typography color="text.secondary" fontSize={13}>
+                Loading notified students...
+              </Typography>
+            </Box>
+          ) : notifiedStudents.length === 0 ? (
+            <Box display="flex" flexDirection="column" alignItems="center" gap={1} py={6} sx={{ animation: "fadeIn 0.35s ease" }}>
+              <NotificationsActiveIcon sx={{ fontSize: 38, color: "text.secondary", opacity: 0.5 }} />
+              <Typography color="text.secondary">No students matched/notified for this job.</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              <Chip
+                label={`${notifiedStudents.length} matched student${notifiedStudents.length > 1 ? "s" : ""}`}
+                size="small"
+                sx={{
+                  alignSelf: "flex-start",
+                  bgcolor: "rgba(6,182,212,0.12)",
+                  color: "#06B6D4",
+                  border: "1px solid rgba(6,182,212,0.22)",
+                  fontWeight: 700,
+                  mb: 0.5
+                }}
+              />
+
+              {notifiedStudents.map((s, i) => {
+                const matchColor = s.matchPercent >= 75 ? "#22C55E" : s.matchPercent >= 40 ? "#F59E0B" : "#EF4444";
+
+                return (
+                  <Stack
+                    key={s.id}
+                    direction="row"
+                    alignItems="center"
+                    spacing={1.5}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      backgroundColor: "#0D1220",
+                      transition: "border-color 0.2s ease, transform 0.2s ease",
+                      animation: "fadeUp 0.35s ease both",
+                      animationDelay: `${i * 0.06}s`,
+                      "&:hover": {
+                        borderColor: "rgba(6,182,212,0.4)",
+                        transform: "translateX(2px)"
+                      }
+                    }}
+                  >
+                    <UserAvatar name={s.studentName} photoUrl={s.photoUrl} size={38} tone="primary" />
+
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: 13, fontWeight: 600, wordBreak: "break-word" }}>
+                        {s.studentName}
+                      </Typography>
+                      <Typography sx={{ fontSize: 11.5, color: "text.secondary" }}>
+                        Notified: {formatDateTime(s.notifiedAt)}
+                      </Typography>
+                    </Box>
+
+                    <Tooltip title={s.isRead ? "Read" : "Unread"}>
+                      {s.isRead ? (
+                        <CheckCircleIcon sx={{ fontSize: 18, color: "#22C55E" }} />
+                      ) : (
+                        <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                      )}
+                    </Tooltip>
+
+                    <Chip
+                      label={`${s.matchPercent}%`}
+                      size="small"
+                      sx={{
+                        minWidth: 54,
+                        justifyContent: "center",
+                        color: matchColor,
+                        bgcolor: `${matchColor}22`,
+                        border: `1px solid ${matchColor}55`,
+                        fontWeight: 700
+                      }}
+                    />
+                  </Stack>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setNotifiedOpen(false)} variant="contained">
             Close
           </Button>
         </DialogActions>
