@@ -24,12 +24,14 @@ import SearchIcon from "@mui/icons-material/Search";
 import BusinessIcon from "@mui/icons-material/Business";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import DownloadIcon from "@mui/icons-material/Download";
 
 import { DataGrid } from "@mui/x-data-grid";
 import { collection, getDocs, query, where } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
 import UserAvatar from "../components/UserAvatar";
+import { exportToCsv } from "../utils/exportCsv";
 
 function formatTime(value) {
   if (!value) return "-";
@@ -104,6 +106,24 @@ function Employers() {
   };
 
   const stats = useMemo(() => ({ total: employers.length }), [employers]);
+
+  const handleExportCsv = () => {
+    const rows = filteredEmployers.map((e) => ({
+      name: e.name || "",
+      email: e.email || "",
+      phone: e.phone || "",
+      jobsCount: e.jobsCount ?? 0,
+      uid: e.uid || ""
+    }));
+
+    exportToCsv("employers", rows, [
+      { key: "name", label: "Name" },
+      { key: "email", label: "Email" },
+      { key: "phone", label: "Phone" },
+      { key: "jobsCount", label: "Jobs Posted" },
+      { key: "uid", label: "UID" }
+    ]);
+  };
 
   const columns = [
     {
@@ -234,7 +254,7 @@ function Employers() {
             <BusinessIcon sx={{ fontSize: 50, color: "secondary.main" }} />
           </Box>
 
-          <Box sx={{ display: "flex", gap: 1.5, mt: 2.5, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", gap: 1.5, mt: 2.5, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
             <Chip
               icon={<ApartmentIcon sx={{ fontSize: 16, color: "secondary.main !important" }} />}
               label={`Total Employers: ${stats.total}`}
@@ -245,6 +265,22 @@ function Employers() {
                 fontWeight: 700
               }}
             />
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon sx={{ fontSize: 18 }} />}
+              onClick={handleExportCsv}
+              sx={{
+                textTransform: "none",
+                borderRadius: 2.5,
+                fontWeight: 700,
+                borderColor: "divider",
+                color: "text.primary",
+                transition: "border-color 0.15s ease, transform 0.15s ease",
+                "&:hover": { borderColor: "secondary.main", transform: "scale(1.03)" }
+              }}
+            >
+              Export CSV
+            </Button>
           </Box>
         </CardContent>
       </Card>

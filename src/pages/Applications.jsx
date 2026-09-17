@@ -18,22 +18,40 @@ import {
   DialogContent,
   DialogActions,
   Divider,
-  Fade
+  Fade,
+  Select,
+  MenuItem,
+  Fab,
+  Grow
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import DescriptionIcon from "@mui/icons-material/Description";
 import DeleteIcon from "@mui/icons-material/Delete";
+import DownloadIcon from "@mui/icons-material/Download";
+import DoneAllIcon from "@mui/icons-material/DoneAll";
+import CloseIcon from "@mui/icons-material/Close";
 
 import { DataGrid } from "@mui/x-data-grid";
-import { collection, getDocs, deleteDoc, doc } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, writeBatch, getDoc, addDoc } from "firebase/firestore";
 
 import { db, auth } from "../firebase/firebase";
+import { exportToCsv } from "../utils/exportCsv";
+import UserAvatar from "../components/UserAvatar";
 
 // Update this once the backend is deployed on Render (Phase 7).
 // For now it points at the local Node/Express server.
 const API_BASE_URL = "https://jobmatrix-backend-cd5v.onrender.com";
+
+const STATUS_OPTIONS = ["Applied", "In Review", "Shortlisted", "Rejected"];
+
+const STATUS_MESSAGES = {
+  "In Review": (job, company) => `Your application for ${job} at ${company} is now under review.`,
+  Shortlisted: (job, company) => `Great news! You've been shortlisted for ${job} at ${company}.`,
+  Rejected: (job, company) => `Your application for ${job} at ${company} was not selected this time.`,
+  Applied: (job, company) => `Your application status for ${job} at ${company} was updated to Applied.`
+};
 
 function formatTime(value) {
   if (!value) return "";
@@ -61,6 +79,14 @@ function initials(name) {
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
 }
 
+function statusColor(status) {
+  const s = (status || "Applied").toLowerCase();
+  if (s === "shortlisted") return { color: "#22C55E", bg: "rgba(34,197,94,0.14)" };
+  if (s === "rejected") return { color: "#EF4444", bg: "rgba(239,68,68,0.14)" };
+  if (s === "in review") return { color: "#06B6D4", bg: "rgba(6,182,212,0.14)" };
+  return { color: "#F59E0B", bg: "rgba(245,158,11,0.14)" }; // Applied
+}
+
 function Applications() {
   const [applications, setApplications] = useState([]);
   const [filteredApplications, setFilteredApplications] = useState([]);
@@ -72,6 +98,19 @@ function Applications() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [selectionModel, setSelectionModel] = useState([]);
+  const [gridKey, setGridKey] = useState(0);
+  const [bulkStatus, setBulkStatus] = useState("Shortlisted");
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+
+  // DataGrid's selection model shape differs across @mui/x-data-grid versions
+  // (plain array in v6, {type, ids: Set} in v7+) — normalize either into an array.
+  const normalizeSelection = (model) => {
+    if (Array.isArray(model)) return model;
+    if (model && model.ids) return Array.from(model.ids);
+    return [];
+  };
+
   useEffect(() => {
     loadApplications();
   }, []);
@@ -82,14 +121,14 @@ function Applications() {
     const filtered = applications.filter((application) => {
       const jobTitle = (application.jobTitle || "").toLowerCase();
       const companyName = (application.companyName || "").toLowerCase();
-      const studentId = (application.studentId || "").toLowerCase();
+      const studentName = (application.studentName || "").toLowerCase();
       const status = (application.status || "").toLowerCase();
       const applicationId = (application.applicationId || "").toLowerCase();
 
       return (
         jobTitle.includes(value) ||
         companyName.includes(value) ||
-        studentId.includes(value) ||
+        studentName.includes(value) ||
         status.includes(value) ||
         applicationId.includes(value)
       );
@@ -111,8 +150,28 @@ function Applications() {
         (a, b) => getTimeValue(b.appliedAt) - getTimeValue(a.appliedAt)
       );
 
-      setApplications(data);
-      setFilteredApplications(data);
+      // Resolve student name/photo once per unique studentId.
+      const uniqueIds = [...new Set(data.map((a) => a.studentId).filter(Boolean))];
+      const studentMap = {};
+      await Promise.all(
+        uniqueIds.map(async (sid) => {
+          try {
+            const userSnap = await getDoc(doc(db, "users", sid));
+            studentMap[sid] = userSnap.exists() ? userSnap.data() : null;
+          } catch {
+            studentMap[sid] = null;
+          }
+        })
+      );
+
+      const enriched = data.map((a) => ({
+        ...a,
+        studentName: a.studentId ? studentMap[a.studentId]?.name || a.studentId : "Unknown",
+        studentPhotoUrl: a.studentId ? studentMap[a.studentId]?.photoUrl : null
+      }));
+
+      setApplications(enriched);
+      setFilteredApplications(enriched);
     } catch (error) {
       console.log("Error loading applications:", error);
     } finally {
@@ -171,13 +230,13 @@ function Applications() {
           const value = search.toLowerCase().trim();
           const jobTitle = (application.jobTitle || "").toLowerCase();
           const companyName = (application.companyName || "").toLowerCase();
-          const studentId = (application.studentId || "").toLowerCase();
+          const studentName = (application.studentName || "").toLowerCase();
           const status = (application.status || "").toLowerCase();
           const applicationId = (application.applicationId || "").toLowerCase();
           return (
             jobTitle.includes(value) ||
             companyName.includes(value) ||
-            studentId.includes(value) ||
+            studentName.includes(value) ||
             status.includes(value) ||
             applicationId.includes(value)
           );
@@ -191,6 +250,119 @@ function Applications() {
     } finally {
       setDeleting(false);
     }
+  };
+
+  // Phase 3 — Bulk Actions: update status on every selected application in
+  // a single atomic Firestore batch write (max 500 per batch, safely under
+  // any realistic selection size here).
+  const handleBulkStatusUpdate = async () => {
+    if (selectionModel.length === 0) return;
+
+    setBulkUpdating(true);
+    try {
+      const targets = applications.filter((app) => selectionModel.includes(app.id));
+
+      const batch = writeBatch(db);
+      targets.forEach((app) => {
+        batch.update(doc(db, "applications", app.id), { status: bulkStatus });
+      });
+      await batch.commit();
+
+      setApplications((prev) =>
+        prev.map((app) =>
+          selectionModel.includes(app.id) ? { ...app, status: bulkStatus } : app
+        )
+      );
+      setFilteredApplications((prev) =>
+        prev.map((app) =>
+          selectionModel.includes(app.id) ? { ...app, status: bulkStatus } : app
+        )
+      );
+      setSelectionModel([]);
+      setGridKey((k) => k + 1);
+
+      // Fire student push notifications in the background — a notification
+      // failure should never block or roll back the status update itself.
+      notifyStudentsOfStatusChange(targets, bulkStatus);
+    } catch (error) {
+      console.log("Bulk status update error:", error);
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const notifyStudentsOfStatusChange = async (targets, status) => {
+    const messageFor = STATUS_MESSAGES[status] || STATUS_MESSAGES.Applied;
+
+    await Promise.allSettled(
+      targets.map(async (app) => {
+        if (!app.studentId) return;
+
+        const message = messageFor(app.jobTitle || "the job", app.companyName || "the company");
+
+        try {
+          // Write the same Firestore notification doc the employer-triggered
+          // flow creates, so it also appears on the student's in-app
+          // notification screen (not just the push tray).
+          await addDoc(collection(db, "notifications"), {
+            recipientId: app.studentId,
+            studentId: app.studentId,
+            jobId: app.jobId || "",
+            jobTitle: app.jobTitle || "",
+            companyName: app.companyName || "",
+            message,
+            type: "StatusUpdate",
+            isRead: false,
+            createdAt: Date.now()
+          });
+        } catch (error) {
+          console.log("Create notification doc error:", error);
+        }
+
+        try {
+          const userSnap = await getDoc(doc(db, "users", app.studentId));
+          const token = userSnap.exists() ? userSnap.data().fcmToken : null;
+          if (!token) return;
+
+          await fetch(`${API_BASE_URL}/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              token,
+              title: "Application Update",
+              body: message,
+              applicationId: app.id,
+              type: "StatusUpdate"
+            })
+          });
+        } catch (error) {
+          console.log("Notify student error:", error);
+        }
+      })
+    );
+  };
+
+  // Phase 3 — CSV Export
+  const handleExportCsv = () => {
+    const rows = filteredApplications.map((a) => ({
+      jobTitle: a.jobTitle || "",
+      companyName: a.companyName || "",
+      studentName: a.studentName || "",
+      studentId: a.studentId || "",
+      status: a.status || "Applied",
+      appliedAt: formatTime(a.appliedAt),
+      applicationId: a.applicationId || a.id
+    }));
+
+    exportToCsv("applications", rows, [
+      { key: "jobTitle", label: "Job Title" },
+      { key: "companyName", label: "Company" },
+      { key: "studentName", label: "Student" },
+      { key: "studentId", label: "Student ID" },
+      { key: "status", label: "Status" },
+      { key: "appliedAt", label: "Applied At" },
+      { key: "applicationId", label: "Application ID" }
+    ]);
   };
 
   const stats = useMemo(() => {
@@ -248,43 +420,39 @@ function Applications() {
       minWidth: 160
     },
     {
-      field: "studentId",
-      headerName: "Student ID",
+      field: "studentName",
+      headerName: "Student",
       flex: 1.3,
-      minWidth: 180
+      minWidth: 200,
+      renderCell: (params) => (
+        <Tooltip title={params.row.studentId || "-"}>
+          <Stack direction="row" spacing={1.3} alignItems="center" sx={{ height: "100%" }}>
+            <UserAvatar name={params.value} photoUrl={params.row.studentPhotoUrl} size={30} tone="primary" />
+            <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>
+              {params.value || "Unknown"}
+            </Typography>
+          </Stack>
+        </Tooltip>
+      )
     },
     {
       field: "status",
       headerName: "Status",
       flex: 0.9,
-      minWidth: 130,
+      minWidth: 140,
       renderCell: (params) => {
-        const status = (params.value || "Applied").toLowerCase();
-
-        let chipColor = "#94A3B8";
-        let chipBg = "rgba(148,163,184,0.12)";
-
-        if (status === "applied") {
-          chipColor = "#F59E0B";
-          chipBg = "rgba(245,158,11,0.14)";
-        } else if (status === "shortlisted") {
-          chipColor = "#22C55E";
-          chipBg = "rgba(34,197,94,0.14)";
-        } else if (status === "rejected") {
-          chipColor = "#EF4444";
-          chipBg = "rgba(239,68,68,0.14)";
-        }
+        const { color, bg } = statusColor(params.value);
 
         return (
           <Chip
             label={params.value || "Applied"}
             size="small"
             sx={{
-              color: chipColor,
-              bgcolor: chipBg,
-              border: `1px solid ${chipColor}33`,
+              color,
+              bgcolor: bg,
+              border: `1px solid ${color}33`,
               fontWeight: 700,
-              ...(status === "shortlisted" && {
+              ...((params.value || "").toLowerCase() === "shortlisted" && {
                 "&::before": {
                   content: '""',
                   display: "inline-block",
@@ -413,46 +581,67 @@ function Applications() {
               </Typography>
             </Box>
 
-            <AssignmentIcon sx={{ fontSize: 50, color: "warning.main" }} />
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <AssignmentIcon sx={{ fontSize: 50, color: "warning.main" }} />
+            </Stack>
           </Box>
 
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, mt: 2.5 }}>
-            <Chip
-              label={`Total: ${stats.total}`}
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, mt: 2.5, alignItems: "center", justifyContent: "space-between" }}>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+              <Chip
+                label={`Total: ${stats.total}`}
+                sx={{
+                  bgcolor: "rgba(99,102,241,0.12)",
+                  color: "primary.light",
+                  border: "1px solid rgba(99,102,241,0.2)",
+                  fontWeight: 700
+                }}
+              />
+              <Chip
+                label={`Applied: ${stats.applied}`}
+                sx={{
+                  bgcolor: "rgba(245,158,11,0.12)",
+                  color: "warning.main",
+                  border: "1px solid rgba(245,158,11,0.2)",
+                  fontWeight: 700
+                }}
+              />
+              <Chip
+                label={`Shortlisted: ${stats.shortlisted}`}
+                sx={{
+                  bgcolor: "rgba(34,197,94,0.12)",
+                  color: "success.main",
+                  border: "1px solid rgba(34,197,94,0.2)",
+                  fontWeight: 700
+                }}
+              />
+              <Chip
+                label={`Rejected: ${stats.rejected}`}
+                sx={{
+                  bgcolor: "rgba(239,68,68,0.12)",
+                  color: "#FCA5A5",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                  fontWeight: 700
+                }}
+              />
+            </Box>
+
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon sx={{ fontSize: 18 }} />}
+              onClick={handleExportCsv}
               sx={{
-                bgcolor: "rgba(99,102,241,0.12)",
-                color: "primary.light",
-                border: "1px solid rgba(99,102,241,0.2)",
-                fontWeight: 700
+                textTransform: "none",
+                borderRadius: 2.5,
+                fontWeight: 700,
+                borderColor: "divider",
+                color: "text.primary",
+                transition: "border-color 0.15s ease, transform 0.15s ease",
+                "&:hover": { borderColor: "warning.main", transform: "scale(1.03)" }
               }}
-            />
-            <Chip
-              label={`Applied: ${stats.applied}`}
-              sx={{
-                bgcolor: "rgba(245,158,11,0.12)",
-                color: "warning.main",
-                border: "1px solid rgba(245,158,11,0.2)",
-                fontWeight: 700
-              }}
-            />
-            <Chip
-              label={`Shortlisted: ${stats.shortlisted}`}
-              sx={{
-                bgcolor: "rgba(34,197,94,0.12)",
-                color: "success.main",
-                border: "1px solid rgba(34,197,94,0.2)",
-                fontWeight: 700
-              }}
-            />
-            <Chip
-              label={`Rejected: ${stats.rejected}`}
-              sx={{
-                bgcolor: "rgba(239,68,68,0.12)",
-                color: "#FCA5A5",
-                border: "1px solid rgba(239,68,68,0.2)",
-                fontWeight: 700
-              }}
-            />
+            >
+              Export CSV
+            </Button>
           </Box>
         </CardContent>
       </Card>
@@ -519,10 +708,13 @@ function Applications() {
               }}
             >
               <DataGrid
+                key={gridKey}
                 rows={filteredApplications}
                 columns={columns}
-                pageSizeOptions={[5, 10, 20, 50]}
+                checkboxSelection
                 disableRowSelectionOnClick
+                onRowSelectionModelChange={(model) => setSelectionModel(normalizeSelection(model))}
+                pageSizeOptions={[5, 10, 20, 50]}
                 initialState={{
                   pagination: { paginationModel: { pageSize: 10, page: 0 } }
                 }}
@@ -559,6 +751,96 @@ function Applications() {
           )}
         </CardContent>
       </Card>
+
+      {/* Phase 3 — Bulk Actions floating bar, slides in only when rows are selected */}
+      <Grow in={selectionModel.length > 0} unmountOnExit>
+        <Box
+          sx={{
+            position: "fixed",
+            bottom: 28,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 1300,
+            display: "flex",
+            alignItems: "center",
+            gap: 1.5,
+            px: 2.5,
+            py: 1.3,
+            borderRadius: 4,
+            backgroundColor: "#0D1220",
+            border: "1px solid",
+            borderColor: "rgba(99,102,241,0.35)",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.45)"
+          }}
+        >
+          <Chip
+            label={`${selectionModel.length} selected`}
+            size="small"
+            sx={{
+              bgcolor: "rgba(99,102,241,0.15)",
+              color: "primary.light",
+              border: "1px solid rgba(99,102,241,0.3)",
+              fontWeight: 700
+            }}
+          />
+
+          <Select
+            size="small"
+            value={bulkStatus}
+            onChange={(e) => setBulkStatus(e.target.value)}
+            sx={{
+              minWidth: 140,
+              color: "#fff",
+              backgroundColor: "#151B2E",
+              borderRadius: 2,
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: "divider" },
+              "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#2A3447" }
+            }}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <MenuItem key={s} value={s}>
+                {s}
+              </MenuItem>
+            ))}
+          </Select>
+
+          <Button
+            variant="contained"
+            size="small"
+            disabled={bulkUpdating}
+            startIcon={
+              bulkUpdating ? (
+                <CircularProgress size={14} sx={{ color: "#fff" }} />
+              ) : (
+                <DoneAllIcon sx={{ fontSize: 16 }} />
+              )
+            }
+            onClick={handleBulkStatusUpdate}
+            sx={{
+              textTransform: "none",
+              borderRadius: 2,
+              fontWeight: 700,
+              bgcolor: "primary.main",
+              "&:hover": { bgcolor: "primary.dark" }
+            }}
+          >
+            {bulkUpdating ? "Updating..." : "Apply"}
+          </Button>
+
+          <Tooltip title="Clear selection">
+            <IconButton
+              size="small"
+              onClick={() => {
+                setSelectionModel([]);
+                setGridKey((k) => k + 1);
+              }}
+              sx={{ color: "text.secondary", "&:hover": { color: "#fff" } }}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </Grow>
 
       <Dialog
         open={deleteOpen}

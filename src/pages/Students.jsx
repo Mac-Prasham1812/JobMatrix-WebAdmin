@@ -26,12 +26,14 @@ import SchoolIcon from "@mui/icons-material/School";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PersonIcon from "@mui/icons-material/Person";
+import DownloadIcon from "@mui/icons-material/Download";
 
 import { DataGrid } from "@mui/x-data-grid";
 import { collection, getDocs, query, where, deleteDoc, doc } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
 import UserAvatar from "../components/UserAvatar";
+import { exportToCsv } from "../utils/exportCsv";
 
 function formatTime(value) {
   if (!value) return "-";
@@ -168,6 +170,26 @@ function Students() {
       total: students.length
     };
   }, [students]);
+
+  const handleExportCsv = () => {
+    const rows = filteredStudents.map((s) => ({
+      name: s.name || "",
+      email: s.email || "",
+      phone: s.phone || "",
+      profileCompleteness: `${completeness(s)}%`,
+      applicationsCount: s.applicationsCount ?? 0,
+      uid: s.uid || ""
+    }));
+
+    exportToCsv("students", rows, [
+      { key: "name", label: "Name" },
+      { key: "email", label: "Email" },
+      { key: "phone", label: "Phone" },
+      { key: "profileCompleteness", label: "Profile %" },
+      { key: "applicationsCount", label: "Applications" },
+      { key: "uid", label: "UID" }
+    ]);
+  };
 
   const columns = [
     {
@@ -348,7 +370,7 @@ function Students() {
             <SchoolIcon sx={{ fontSize: 50, color: "primary.main" }} />
           </Box>
 
-          <Box sx={{ display: "flex", gap: 1.5, mt: 2.5, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", gap: 1.5, mt: 2.5, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
             <Chip
               icon={<PersonIcon sx={{ fontSize: 16, color: "primary.light !important" }} />}
               label={`Total Students: ${stats.total}`}
@@ -359,6 +381,22 @@ function Students() {
                 fontWeight: 700
               }}
             />
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon sx={{ fontSize: 18 }} />}
+              onClick={handleExportCsv}
+              sx={{
+                textTransform: "none",
+                borderRadius: 2.5,
+                fontWeight: 700,
+                borderColor: "divider",
+                color: "text.primary",
+                transition: "border-color 0.15s ease, transform 0.15s ease",
+                "&:hover": { borderColor: "primary.main", transform: "scale(1.03)" }
+              }}
+            >
+              Export CSV
+            </Button>
           </Box>
         </CardContent>
       </Card>
