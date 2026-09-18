@@ -18,7 +18,8 @@ import {
   Divider,
   Tooltip,
   Fade,
-  LinearProgress
+  LinearProgress,
+  Switch
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
@@ -29,7 +30,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import DownloadIcon from "@mui/icons-material/Download";
 
 import { DataGrid } from "@mui/x-data-grid";
-import { collection, getDocs, query, where, deleteDoc, doc } from "firebase/firestore";
+import { collection, getDocs, query, where, deleteDoc, doc, updateDoc } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
 import UserAvatar from "../components/UserAvatar";
@@ -43,7 +44,6 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
 }
 
-// 4 fields, 25% each — Skills, Experience, Phone, Photo
 function completeness(student) {
   let score = 0;
   if (student.skills && (Array.isArray(student.skills) ? student.skills.length : String(student.skills).trim())) score += 25;
@@ -99,7 +99,6 @@ function Students() {
         ...d.data()
       }));
 
-      // Count applications per student (matched by uid) in one pass.
       const appsSnapshot = await getDocs(collection(db, "applications"));
       const countMap = {};
       appsSnapshot.docs.forEach((d) => {
@@ -165,6 +164,22 @@ function Students() {
     }
   };
 
+  // NEW: toggle isDisabled on a student's user doc, update local state optimistically
+  const handleToggleDisabled = async (student, value) => {
+    try {
+      await updateDoc(doc(db, "users", student.id), { isDisabled: value });
+      const apply = (list) =>
+        list.map((s) => (s.id === student.id ? { ...s, isDisabled: value } : s));
+      setStudents(apply);
+      setFilteredStudents(apply);
+      if (selectedStudent?.id === student.id) {
+        setSelectedStudent((prev) => ({ ...prev, isDisabled: value }));
+      }
+    } catch (error) {
+      console.log("Error updating isDisabled:", error);
+    }
+  };
+
   const stats = useMemo(() => {
     return {
       total: students.length
@@ -178,6 +193,7 @@ function Students() {
       phone: s.phone || "",
       profileCompleteness: `${completeness(s)}%`,
       applicationsCount: s.applicationsCount ?? 0,
+      isDisabled: s.isDisabled ? "Yes" : "No",
       uid: s.uid || ""
     }));
 
@@ -187,6 +203,7 @@ function Students() {
       { key: "phone", label: "Phone" },
       { key: "profileCompleteness", label: "Profile %" },
       { key: "applicationsCount", label: "Applications" },
+      { key: "isDisabled", label: "Disabled" },
       { key: "uid", label: "UID" }
     ]);
   };
@@ -280,6 +297,25 @@ function Students() {
             fontWeight: 700
           }}
         />
+      )
+    },
+    // NEW: Disabled toggle column
+    {
+      field: "isDisabled",
+      headerName: "Disabled",
+      flex: 0.8,
+      minWidth: 110,
+      sortable: false,
+      filterable: false,
+      renderCell: (params) => (
+        <Tooltip title={params.value ? "Enable account" : "Disable account"}>
+          <Switch
+            checked={!!params.value}
+            onChange={(e) => handleToggleDisabled(params.row, e.target.checked)}
+            color="error"
+            size="small"
+          />
+        </Tooltip>
       )
     },
     {
@@ -545,6 +581,15 @@ function Students() {
               <Typography sx={{ wordBreak: "break-word" }}>
                 <b>Document ID:</b> {selectedStudent.id || "-"}
               </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography><b>Disabled:</b></Typography>
+                <Switch
+                  checked={!!selectedStudent.isDisabled}
+                  onChange={(e) => handleToggleDisabled(selectedStudent, e.target.checked)}
+                  color="error"
+                  size="small"
+                />
+              </Stack>
             </Stack>
           )}
         </DialogContent>

@@ -17,7 +17,8 @@ import {
   DialogActions,
   Button,
   Divider,
-  Fade
+  Fade,
+  Switch
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
@@ -27,7 +28,7 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 
 import { DataGrid } from "@mui/x-data-grid";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, updateDoc } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
 import UserAvatar from "../components/UserAvatar";
@@ -77,8 +78,6 @@ function Employers() {
         ...doc.data()
       }));
 
-      // Count jobs per employer (matched by uid via "postedBy" field).
-      // NOTE: verify this field name matches your Jobs.jsx / AddJobActivity schema.
       const jobsSnapshot = await getDocs(collection(db, "jobs"));
       const countMap = {};
       jobsSnapshot.docs.forEach((d) => {
@@ -105,6 +104,22 @@ function Employers() {
     setViewOpen(true);
   };
 
+  // NEW: toggle isVerified or isDisabled on a user doc, update local state optimistically
+  const handleToggle = async (employer, field, value) => {
+    try {
+      await updateDoc(doc(db, "users", employer.id), { [field]: value });
+      const apply = (list) =>
+        list.map((e) => (e.id === employer.id ? { ...e, [field]: value } : e));
+      setEmployers(apply);
+      setFilteredEmployers(apply);
+      if (selectedEmployer?.id === employer.id) {
+        setSelectedEmployer((prev) => ({ ...prev, [field]: value }));
+      }
+    } catch (error) {
+      console.log(`Error updating ${field}:`, error);
+    }
+  };
+
   const stats = useMemo(() => ({ total: employers.length }), [employers]);
 
   const handleExportCsv = () => {
@@ -113,6 +128,8 @@ function Employers() {
       email: e.email || "",
       phone: e.phone || "",
       jobsCount: e.jobsCount ?? 0,
+      isVerified: e.isVerified ? "Yes" : "No",
+      isDisabled: e.isDisabled ? "Yes" : "No",
       uid: e.uid || ""
     }));
 
@@ -121,6 +138,8 @@ function Employers() {
       { key: "email", label: "Email" },
       { key: "phone", label: "Phone" },
       { key: "jobsCount", label: "Jobs Posted" },
+      { key: "isVerified", label: "Verified" },
+      { key: "isDisabled", label: "Disabled" },
       { key: "uid", label: "UID" }
     ]);
   };
@@ -186,6 +205,44 @@ function Employers() {
             fontWeight: 700
           }}
         />
+      )
+    },
+    // NEW: Verified toggle column
+    {
+      field: "isVerified",
+      headerName: "Verified",
+      flex: 0.8,
+      minWidth: 110,
+      sortable: false,
+      filterable: false,
+      renderCell: (params) => (
+        <Tooltip title={params.value ? "Unverify employer" : "Verify employer"}>
+          <Switch
+            checked={!!params.value}
+            onChange={(e) => handleToggle(params.row, "isVerified", e.target.checked)}
+            color="success"
+            size="small"
+          />
+        </Tooltip>
+      )
+    },
+    // NEW: Disabled toggle column
+    {
+      field: "isDisabled",
+      headerName: "Disabled",
+      flex: 0.8,
+      minWidth: 110,
+      sortable: false,
+      filterable: false,
+      renderCell: (params) => (
+        <Tooltip title={params.value ? "Enable account" : "Disable account"}>
+          <Switch
+            checked={!!params.value}
+            onChange={(e) => handleToggle(params.row, "isDisabled", e.target.checked)}
+            color="error"
+            size="small"
+          />
+        </Tooltip>
       )
     },
     {
@@ -418,6 +475,24 @@ function Employers() {
               <Typography><b>Last Active:</b> {formatTime(selectedEmployer.lastSeen)}</Typography>
               <Typography><b>Joined:</b> {formatTime(selectedEmployer.createdAt)}</Typography>
               <Typography sx={{ wordBreak: "break-word" }}><b>UID:</b> {selectedEmployer.uid || "-"}</Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography><b>Verified:</b></Typography>
+                <Switch
+                  checked={!!selectedEmployer.isVerified}
+                  onChange={(e) => handleToggle(selectedEmployer, "isVerified", e.target.checked)}
+                  color="success"
+                  size="small"
+                />
+              </Stack>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography><b>Disabled:</b></Typography>
+                <Switch
+                  checked={!!selectedEmployer.isDisabled}
+                  onChange={(e) => handleToggle(selectedEmployer, "isDisabled", e.target.checked)}
+                  color="error"
+                  size="small"
+                />
+              </Stack>
             </Stack>
           )}
         </DialogContent>
