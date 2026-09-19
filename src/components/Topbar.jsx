@@ -6,7 +6,6 @@ import {
   IconButton,
   Box,
   Avatar,
-  Badge,
   Menu,
   MenuItem,
   Divider,
@@ -14,11 +13,11 @@ import {
 } from "@mui/material";
 
 import MenuIcon from "@mui/icons-material/Menu";
-import NotificationsIcon from "@mui/icons-material/Notifications";
 import LogoutIcon from "@mui/icons-material/Logout";
 import PersonIcon from "@mui/icons-material/Person";
 
 import { useAuth } from "../context/AuthContext";
+import NotificationBell from "./NotificationBell";
 
 function Topbar({ open, setOpen }) {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -76,20 +75,7 @@ function Topbar({ open, setOpen }) {
           </Typography>
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <IconButton
-              color="inherit"
-              sx={{
-                transition: "transform 0.2s ease",
-                "&:hover": {
-                  transform: "scale(1.08)",
-                  backgroundColor: "#161D2E"
-                }
-              }}
-            >
-              <Badge variant="dot" color="error" overlap="circular">
-                <NotificationsIcon />
-              </Badge>
-            </IconButton>
+            <NotificationBell />
 
             <Avatar
               onClick={openMenu}
