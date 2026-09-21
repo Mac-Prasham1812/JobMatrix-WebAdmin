@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Drawer,
@@ -10,7 +9,8 @@ import {
   Box,
   Typography,
   Avatar,
-  Tooltip
+  Tooltip,
+  Badge
 } from "@mui/material";
 
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -18,40 +18,28 @@ import SchoolIcon from "@mui/icons-material/School";
 import BusinessIcon from "@mui/icons-material/Business";
 import WorkIcon from "@mui/icons-material/Work";
 import AssignmentIcon from "@mui/icons-material/Assignment";
+import NotificationsIcon from "@mui/icons-material/Notifications";
+import SendIcon from "@mui/icons-material/Send";
+
+import useUnreadCount from "../hooks/useUnreadCount";
 
 const expandedWidth = 250;
 const collapsedWidth = 80;
 
 const menuItems = [
-  {
-    text: "Dashboard",
-    icon: <DashboardIcon />,
-    path: "/"
-  },
-  {
-    text: "Students",
-    icon: <SchoolIcon />,
-    path: "/students"
-  },
-  {
-    text: "Employers",
-    icon: <BusinessIcon />,
-    path: "/employers"
-  },
-  {
-    text: "Jobs",
-    icon: <WorkIcon />,
-    path: "/jobs"
-  },
-  {
-    text: "Applications",
-    icon: <AssignmentIcon />,
-    path: "/applications"
-  }
+  { text: "Dashboard", icon: <DashboardIcon />, path: "/" },
+  { text: "Students", icon: <SchoolIcon />, path: "/students" },
+  { text: "Employers", icon: <BusinessIcon />, path: "/employers" },
+  { text: "Jobs", icon: <WorkIcon />, path: "/jobs" },
+  { text: "Applications", icon: <AssignmentIcon />, path: "/applications" },
+  { text: "Notifications", icon: <NotificationsIcon />, path: "/notifications", badge: true },
+  { text: "Messages", icon: <SendIcon />, path: "/messages" }
 ];
+
 function Sidebar({ open }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const unread = useUnreadCount();
 
   return (
     <Drawer
@@ -105,10 +93,25 @@ function Sidebar({ open }) {
       <List sx={{ px: 1 }}>
         {menuItems.map((item) => {
           const isActive = location.pathname === item.path;
+          const count = item.badge ? unread : 0;
+
+          const iconNode = item.badge && !open ? (
+            <Badge
+              badgeContent={count}
+              max={9}
+              color="error"
+              sx={{ "& .MuiBadge-badge": { fontSize: 10, fontWeight: 700, minWidth: 16, height: 16 } }}
+            >
+              {item.icon}
+            </Badge>
+          ) : (
+            item.icon
+          );
+
           const button = (
             <ListItemButton
               key={item.text}
-             onClick={() => navigate(item.path)}
+              onClick={() => navigate(item.path)}
               sx={{
                 mx: 0.75,
                 borderRadius: 2.5,
@@ -145,7 +148,7 @@ function Sidebar({ open }) {
                   transition: "color 0.2s ease"
                 }}
               >
-                {item.icon}
+                {iconNode}
               </ListItemIcon>
 
               {open && (
@@ -153,6 +156,26 @@ function Sidebar({ open }) {
                   primary={item.text}
                   primaryTypographyProps={{ fontSize: 15, fontWeight: 600 }}
                 />
+              )}
+
+              {open && count > 0 && (
+                <Box
+                  sx={{
+                    minWidth: 22,
+                    height: 22,
+                    px: 0.75,
+                    borderRadius: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    color: "#fff",
+                    bgcolor: "#EF4444"
+                  }}
+                >
+                  {count > 9 ? "9+" : count}
+                </Box>
               )}
             </ListItemButton>
           );

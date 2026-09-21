@@ -5,47 +5,20 @@ import {
   Popover,
   Box,
   Typography,
-  Stack,
   Divider,
   Button,
   Chip
 } from "@mui/material";
 
 import NotificationsIcon from "@mui/icons-material/Notifications";
-import BusinessIcon from "@mui/icons-material/Business";
-import WorkIcon from "@mui/icons-material/Work";
-import FlagIcon from "@mui/icons-material/Flag";
 import InboxOutlinedIcon from "@mui/icons-material/InboxOutlined";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
 import { useNavigate } from "react-router-dom";
-import {
-  collection,
-  query,
-  orderBy,
-  limit,
-  onSnapshot,
-  doc,
-  updateDoc,
-  writeBatch
-} from "firebase/firestore";
+import { collection, query, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase/firebase";
-
-const typeMeta = {
-  NewEmployer: { icon: <BusinessIcon sx={{ fontSize: 18 }} />, color: "#A855F7" },
-  NewJob: { icon: <WorkIcon sx={{ fontSize: 18 }} />, color: "#22C55E" },
-  Report: { icon: <FlagIcon sx={{ fontSize: 18 }} />, color: "#EF4444" }
-};
-
-function formatTime(value) {
-  const millis = typeof value === "number" ? value : value?.toMillis?.() ?? value?.seconds * 1000;
-  if (!millis) return "";
-  const diffMin = Math.round((Date.now() - millis) / 60000);
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return new Date(millis).toLocaleDateString();
-}
+import useUnreadCount from "../hooks/useUnreadCount";
+import { COL, getMeta, toMillis, timeAgo, markAllRead } from "../utils/notificationUtils";
 
 function NotificationBell() {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -53,55 +26,45 @@ function NotificationBell() {
   const [justArrived, setJustArrived] = useState(false);
   const navigate = useNavigate();
 
+  const unreadCount = useUnreadCount(() => {
+    setJustArrived(true);
+    setTimeout(() => setJustArrived(false), 1000);
+  });
+
+  // Latest 5 for the dropdown
   useEffect(() => {
-    const q = query(collection(db, "adminNotifications"), orderBy("createdAt", "desc"), limit(30));
-    let first = true;
-
-    const unsub = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (!first && data.length > items.length) {
-        setJustArrived(true);
-        setTimeout(() => setJustArrived(false), 1000);
-      }
-      first = false;
-      setItems(data);
+    const q = query(collection(db, COL), orderBy("createdAt", "desc"), limit(5));
+    const unsub = onSnapshot(q, (snap) => {
+      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-
     return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const unreadCount = items.filter((n) => !n.isRead).length;
-
-  const openPanel = (e) => setAnchorEl(e.currentTarget);
   const closePanel = () => setAnchorEl(null);
 
-  const handleItemClick = async (item) => {
+  const handleItemClick = (item) => {
     if (!item.isRead) {
-      updateDoc(doc(db, "adminNotifications", item.id), { isRead: true }).catch(() => {});
+      updateDoc(doc(db, COL, item.id), { isRead: true }).catch(() => {});
     }
     closePanel();
-    if (item.type === "NewEmployer") navigate("/employers");
-    else if (item.type === "NewJob") navigate("/jobs");
+    const route = getMeta(item.type).route;
+    if (route) navigate(route);
   };
 
-  const markAllRead = async () => {
-    const unread = items.filter((n) => !n.isRead);
-    if (unread.length === 0) return;
-    const batch = writeBatch(db);
-    unread.forEach((n) => batch.update(doc(db, "adminNotifications", n.id), { isRead: true }));
-    try {
-      await batch.commit();
-    } catch (error) {
-      console.log("Mark all read error:", error);
-    }
+  const handleViewAll = () => {
+    closePanel();
+    navigate("/notifications");
+  };
+
+  const handleMarkAll = () => {
+    markAllRead().catch((e) => console.log("Mark all read error:", e));
   };
 
   return (
     <>
       <IconButton
         color="inherit"
-        onClick={openPanel}
+        onClick={(e) => setAnchorEl(e.currentTarget)}
         sx={{
           transition: "transform 0.2s ease",
           animation: justArrived ? "bellShake 0.5s ease" : "none",
@@ -117,12 +80,25 @@ function NotificationBell() {
       >
         <Badge
           badgeContent={unreadCount}
+          max={9}
           color="error"
           overlap="circular"
+          anchorOrigin={{ vertical: "top", horizontal: "right" }}
           sx={{
             "& .MuiBadge-badge": {
-              transition: "transform 0.2s ease",
-              transform: justArrived ? "scale(1.3)" : "scale(1)"
+              minWidth: 17,
+              height: 17,
+              padding: "0 4px",
+              fontSize: 10,
+              fontWeight: 700,
+              top: 1,
+              right: 1,
+              border: "2px solid #0B1220",
+              animation: justArrived ? "badgePulse 1s ease" : "none"
+            },
+            "@keyframes badgePulse": {
+              "0%": { boxShadow: "0 0 0 0 rgba(239,68,68,0.7)" },
+              "100%": { boxShadow: "0 0 0 10px rgba(239,68,68,0)" }
             }
           }}
         >
@@ -140,25 +116,38 @@ function NotificationBell() {
         PaperProps={{
           sx: {
             mt: 1,
-            width: 360,
-            maxHeight: 460,
+            width: 380,
+            maxWidth: "calc(100vw - 24px)",
             borderRadius: 3,
             background: "#101526",
             border: "1px solid #1C2333",
             color: "#fff",
             boxShadow: "0 20px 48px rgba(0,0,0,0.5)",
-            overflow: "hidden"
+            overflow: "hidden",
+            "@keyframes fadeUp": {
+              from: { opacity: 0, transform: "translateY(8px)" },
+              to: { opacity: 1, transform: "none" }
+            }
           }
         }}
       >
-        <Box sx={{ px: 2.25, py: 1.75, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Typography fontWeight={700} fontSize={15}>
-            Notifications
-          </Typography>
+        <Box sx={{ px: 2.25, py: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Typography fontWeight={700} fontSize={15}>
+              Notifications
+            </Typography>
+            {unreadCount > 0 && (
+              <Chip
+                label={`${unreadCount} new`}
+                size="small"
+                sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: "rgba(239,68,68,0.15)", color: "#F87171" }}
+              />
+            )}
+          </Box>
           {unreadCount > 0 && (
             <Button
               size="small"
-              onClick={markAllRead}
+              onClick={handleMarkAll}
               sx={{ textTransform: "none", fontSize: 12.5, color: "#818CF8", fontWeight: 600 }}
             >
               Mark all read
@@ -167,7 +156,7 @@ function NotificationBell() {
         </Box>
         <Divider sx={{ borderColor: "#1C2333" }} />
 
-        <Box sx={{ maxHeight: 380, overflowY: "auto" }}>
+        <Box>
           {items.length === 0 ? (
             <Box display="flex" flexDirection="column" alignItems="center" gap={1} py={5}>
               <InboxOutlinedIcon sx={{ fontSize: 32, color: "#5B6678" }} />
@@ -177,7 +166,7 @@ function NotificationBell() {
             </Box>
           ) : (
             items.map((item, i) => {
-              const meta = typeMeta[item.type] || { icon: <NotificationsIcon sx={{ fontSize: 18 }} />, color: "#818CF8" };
+              const meta = getMeta(item.type);
               return (
                 <Box
                   key={item.id}
@@ -210,7 +199,7 @@ function NotificationBell() {
                       flexShrink: 0
                     }}
                   >
-                    {meta.icon}
+                    <meta.Icon sx={{ fontSize: 18 }} />
                   </Box>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography fontSize={13.5} fontWeight={600} sx={{ color: "#F1F5F9" }}>
@@ -220,7 +209,7 @@ function NotificationBell() {
                       {item.message}
                     </Typography>
                     <Typography fontSize={11} sx={{ color: "#5B6678", mt: 0.4 }}>
-                      {formatTime(item.createdAt)}
+                      {timeAgo(toMillis(item.createdAt))}
                     </Typography>
                   </Box>
                   {!item.isRead && (
@@ -242,6 +231,24 @@ function NotificationBell() {
             })
           )}
         </Box>
+
+        <Divider sx={{ borderColor: "#1C2333" }} />
+        <Button
+          fullWidth
+          onClick={handleViewAll}
+          endIcon={<ArrowForwardIcon sx={{ fontSize: 16 }} />}
+          sx={{
+            py: 1.25,
+            borderRadius: 0,
+            textTransform: "none",
+            fontWeight: 600,
+            fontSize: 13,
+            color: "#818CF8",
+            "&:hover": { backgroundColor: "#161D2E" }
+          }}
+        >
+          View all notifications
+        </Button>
       </Popover>
     </>
   );

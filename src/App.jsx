@@ -7,6 +7,8 @@ import Students from "./pages/Students";
 import Employers from "./pages/Employers";
 import Jobs from "./pages/Jobs";
 import Applications from "./pages/Applications";
+import Notifications from "./pages/Notifications";
+import Messages from "./pages/Messages";
 
 function ProtectedRoutes() {
   const { user, isAdmin, loading } = useAuth();
@@ -40,6 +42,8 @@ function ProtectedRoutes() {
         <Route path="/employers" element={<Employers />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/applications" element={<Applications />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/messages" element={<Messages />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AdminLayout>
