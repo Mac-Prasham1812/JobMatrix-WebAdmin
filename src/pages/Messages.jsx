@@ -283,7 +283,7 @@ function Messages() {
       const res = await fetch(`${API_BASE}/admin/send-message`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ audience: "user", userId: selectedUid, title: "Support", message: text })
+       body: JSON.stringify({ audience: "user", userId: selectedUid, title: "JobMatrix Support", message: text })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to send reply");
