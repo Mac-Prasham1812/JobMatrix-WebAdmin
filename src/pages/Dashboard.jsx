@@ -11,6 +11,9 @@ import InboxOutlinedIcon from "@mui/icons-material/InboxOutlined";
 import { collection, getDocs, query, where, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 
+// Fixed px radii so the global theme borderRadius (18) does not inflate shapes
+const R = { card: "14px", tile: "10px", pill: "12px" };
+
 const cardMeta = [
   { key: "students", title: "Students", color: "#6366F1", icon: <SchoolIcon sx={{ fontSize: 28 }} /> },
   { key: "employers", title: "Employers", color: "#A855F7", icon: <BusinessIcon sx={{ fontSize: 28 }} /> },
@@ -84,11 +87,11 @@ function Dashboard() {
   const cards = cardMeta.map((c) => ({ ...c, value: counts[c.key] }));
 
   const emptyRow = (icon, title, desc) => (
-    <Box sx={{ border: "1px solid #1C2333", borderRadius: 3, p: 2.5, bgcolor: "#0D1220" }}>
+    <Box sx={{ border: "1px solid #1C2333", borderRadius: R.tile, p: 2.5, bgcolor: "#0D1220" }}>
       <Stack direction="row" spacing={2} alignItems="center">
         <Box
           sx={{
-            width: 42, height: 42, borderRadius: 2.5, bgcolor: "#101526",
+            width: 42, height: 42, borderRadius: R.tile, bgcolor: "#101526",
             border: "1px solid #1C2333", display: "flex", alignItems: "center",
             justifyContent: "center", color: "#5B6678", flexShrink: 0
           }}
@@ -106,7 +109,7 @@ function Dashboard() {
   const skeletonRow = (i) => (
     <Box
       key={`sk-${i}`}
-      sx={{ border: "1px solid #1C2333", borderRadius: 3, p: 2.25, bgcolor: "#0D1220" }}
+      sx={{ border: "1px solid #1C2333", borderRadius: R.tile, p: 2.25, bgcolor: "#0D1220" }}
     >
       <Stack direction="row" spacing={2} alignItems="center">
         <Skeleton variant="rounded" width={42} height={42} sx={{ borderRadius: "10px", bgcolor: "rgba(148,163,184,0.08)" }} />
@@ -122,7 +125,7 @@ function Dashboard() {
     <Card
       sx={{
         minHeight: 320,
-        borderRadius: 3.5,
+        borderRadius: R.card,
         background: "#101526",
         border: "1px solid #1C2333",
         boxShadow: "0 10px 28px rgba(0,0,0,0.18)"
@@ -137,6 +140,7 @@ function Dashboard() {
             size="small"
             label={chipText}
             sx={{
+              borderRadius: R.pill,
               bgcolor: `${chipColor}1A`,
               color: chipColor,
               border: `1px solid ${chipColor}29`,
@@ -158,7 +162,7 @@ function Dashboard() {
                   key={item.id}
                   sx={{
                     border: "1px solid #1C2333",
-                    borderRadius: 3,
+                    borderRadius: R.tile,
                     p: 2.25,
                     bgcolor: "#0D1220",
                     animation: "fadeUp 0.35s ease",
@@ -181,7 +185,7 @@ function Dashboard() {
       <Card
         sx={{
           mb: 4,
-          borderRadius: 3.5,
+          borderRadius: R.card,
           background: "linear-gradient(135deg, rgba(16,21,38,0.9) 0%, rgba(13,18,32,0.9) 100%)",
           border: "1px solid #1C2333",
           boxShadow: "0 14px 32px rgba(0,0,0,0.2)",
@@ -244,6 +248,7 @@ function Dashboard() {
                 }
                 label={loading ? "Syncing..." : "Live Firebase Data"}
                 sx={{
+                  borderRadius: R.pill,
                   bgcolor: "rgba(99,102,241,0.12)",
                   color: "#A5B4FC",
                   border: "1px solid rgba(99,102,241,0.22)",
@@ -265,98 +270,78 @@ function Dashboard() {
           <Grid key={card.key} size={{ xs: 12, sm: 6, md: 3 }}>
             <Card
               sx={{
-                borderRadius: 3.5,
-                background: "linear-gradient(160deg, rgba(16,21,38,0.95), rgba(13,18,32,0.95))",
+                borderRadius: R.card,
+                background: `linear-gradient(135deg, ${card.color}26 0%, #101526 65%)`,
                 backdropFilter: "blur(10px)",
-                border: "1px solid #1C2333",
-                boxShadow: "0 10px 24px rgba(0,0,0,0.16)",
-                transition: "transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease",
+                border: `1px solid ${card.color}55`,
+                boxShadow: `0 0 22px ${card.color}1F`,
+                transition: "transform 0.25s ease, box-shadow 0.25s ease",
                 position: "relative",
                 overflow: "hidden",
                 animation: "fadeUp 0.4s ease",
                 animationDelay: `${index * 0.07}s`,
                 animationFillMode: "backwards",
-                "&::before": {
-                  content: '""',
-                  position: "absolute",
-                  top: 0, left: 0, right: 0,
-                  height: 3,
-                  background: `linear-gradient(90deg, ${card.color}, transparent)`
-                },
                 "&:hover": {
                   transform: "translateY(-4px)",
-                  borderColor: `${card.color}55`,
-                  boxShadow: `0 18px 36px rgba(0,0,0,0.28), 0 0 24px ${card.color}1F`
+                  boxShadow: `0 0 30px ${card.color}40`
                 }
               }}
             >
-              <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ color: "#8B96AB", fontSize: 13.5, fontWeight: 500, mb: 1 }}>
-                      {card.title}
-                    </Typography>
-                    {loading ? (
-                      <Skeleton
-                        variant="text"
-                        width={56}
-                        height={42}
-                        sx={{ bgcolor: "rgba(148,163,184,0.08)", transform: "none" }}
-                      />
-                    ) : (
-                      <Typography variant="h3" fontWeight="700" sx={{ color: "#F8FAFC", letterSpacing: "-0.04em", lineHeight: 1, fontSize: 34 }}>
-                        {card.value}
-                      </Typography>
-                    )}
-                  </Box>
-
+              <CardContent sx={{ p: 2.25, display: "flex", alignItems: "center", gap: 2 }}>
                   <Box
                     sx={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: 2.75,
-                      bgcolor: `${card.color}18`,
-                      border: `1px solid ${card.color}35`,
+                      width: 52,
+                      height: 52,
+                      borderRadius: R.tile,
+                      bgcolor: `${card.color}22`,
+                      border: `1px solid ${card.color}55`,
+                      boxShadow: `0 0 16px ${card.color}33`,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       color: card.color,
-                      flexShrink: 0,
-                      alignSelf: "flex-start",
-                      transition: "transform 0.25s ease, box-shadow 0.25s ease",
-                      ".MuiCard-root:hover &": {
-                        transform: "scale(1.08)",
-                        boxShadow: `0 0 0 6px ${card.color}14`
-                      }
+                      flexShrink: 0
                     }}
                   >
                     {card.icon}
                   </Box>
-                </Box>
 
-                <Box sx={{ mt: 2.25, minHeight: 20 }}>
-                  {loading ? (
-                    <Skeleton variant="text" width={90} height={18} sx={{ bgcolor: "rgba(148,163,184,0.06)" }} />
-                  ) : card.key === "jobs" ? (
-                    <Stack direction="row" spacing={0.75} alignItems="center">
-                      <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#22C55E" }} />
-                      <Typography variant="body2" sx={{ color: "#8B96AB", fontWeight: 500, fontSize: 12.5 }}>
-                        {jobStats.active} active
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ color: "#A5B0C5", fontSize: 13 }}>{card.title}</Typography>
+                    {loading ? (
+                      <Skeleton
+                        variant="text"
+                        width={56}
+                        height={36}
+                        sx={{ bgcolor: "rgba(148,163,184,0.08)", transform: "none" }}
+                      />
+                    ) : (
+                      <Typography sx={{ color: "#F1F5F9", fontWeight: 700, fontSize: 28, lineHeight: 1.2 }}>
+                        {card.value}
                       </Typography>
-                    </Stack>
-                  ) : card.key === "applications" ? (
-                    <Typography variant="body2" sx={{ color: "#8B96AB", fontWeight: 500, fontSize: 12, lineHeight: 1.5 }}>
-                      {appStats.shortlisted} shortlisted &middot; {appStats.pending} pending &middot; {appStats.rejected} rejected
-                    </Typography>
-                  ) : (
-                    <Stack direction="row" spacing={0.75} alignItems="center">
-                      <TrendingUpIcon sx={{ color: "#22C55E", fontSize: 16 }} />
-                      <Typography variant="body2" sx={{ color: "#22C55E", fontWeight: 500, fontSize: 12.5 }}>
-                        Registered total
+                    )}
+                    {loading ? (
+                      <Skeleton variant="text" width={90} height={16} sx={{ bgcolor: "rgba(148,163,184,0.06)" }} />
+                    ) : card.key === "jobs" ? (
+                      <Stack direction="row" spacing={0.75} alignItems="center">
+                        <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#22C55E" }} />
+                        <Typography sx={{ color: "#8B96AB", fontWeight: 500, fontSize: 12 }}>
+                          {jobStats.active} active
+                        </Typography>
+                      </Stack>
+                    ) : card.key === "applications" ? (
+                      <Typography sx={{ color: "#8B96AB", fontWeight: 500, fontSize: 11.5, lineHeight: 1.5 }}>
+                        {appStats.shortlisted} shortlisted &middot; {appStats.pending} pending &middot; {appStats.rejected} rejected
                       </Typography>
-                    </Stack>
-                  )}
-                </Box>
+                    ) : (
+                      <Stack direction="row" spacing={0.75} alignItems="center">
+                        <TrendingUpIcon sx={{ color: "#22C55E", fontSize: 14 }} />
+                        <Typography sx={{ color: "#22C55E", fontWeight: 500, fontSize: 12 }}>
+                          Registered total
+                        </Typography>
+                      </Stack>
+                    )}
+                  </Box>
               </CardContent>
             </Card>
           </Grid>
@@ -376,7 +361,7 @@ function Dashboard() {
               <Stack direction="row" spacing={2} alignItems="center">
                 <Box
                   sx={{
-                    width: 42, height: 42, borderRadius: 2.5, bgcolor: "#101526",
+                    width: 42, height: 42, borderRadius: R.tile, bgcolor: "#101526",
                     border: "1px solid #1C2333", display: "flex", alignItems: "center",
                     justifyContent: "center", color: "#F59E0B", flexShrink: 0
                   }}
@@ -409,7 +394,7 @@ function Dashboard() {
               <Stack direction="row" spacing={2} alignItems="center">
                 <Box
                   sx={{
-                    width: 42, height: 42, borderRadius: 2.5, bgcolor: "#101526",
+                    width: 42, height: 42, borderRadius: R.tile, bgcolor: "#101526",
                     border: "1px solid #1C2333", display: "flex", alignItems: "center",
                     justifyContent: "center", color: "#22C55E", flexShrink: 0
                   }}
