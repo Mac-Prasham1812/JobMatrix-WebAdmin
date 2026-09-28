@@ -420,4 +420,3 @@ function Dashboard() {
 }
 
 export default Dashboard;
-//Its a dahboard changes for ui/ux design to make all things exact same 
