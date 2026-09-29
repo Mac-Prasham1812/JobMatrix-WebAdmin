@@ -221,3 +221,4 @@ function Login() {
 }
 
 export default Login;
+//UI/UX REDESIGN NEEDED FOR THESE PAGE

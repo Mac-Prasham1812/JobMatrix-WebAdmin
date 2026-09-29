@@ -901,3 +901,4 @@ function Applications() {
 }
 
 export default Applications;
+//UI/UX REDESIGN NEEDED FOR THESE PAGE

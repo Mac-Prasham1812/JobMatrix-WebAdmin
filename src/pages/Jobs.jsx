@@ -912,3 +912,4 @@ function Jobs() {
 }
 
 export default Jobs;
+//UI/UX REDESIGN NEEDED FOR THESE PAGE
