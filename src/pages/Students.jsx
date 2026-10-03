@@ -20,8 +20,10 @@ import {
   Fade,
   LinearProgress,
   Skeleton,
-  Switch
+  Switch,
+  useMediaQuery
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 import SearchIcon from "@mui/icons-material/Search";
 import SchoolIcon from "@mui/icons-material/School";
@@ -57,6 +59,8 @@ const C = {
   muted: "#5B6678"
 };
 
+const MOBILE_PAGE = 8;
+
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "incomplete", label: "Incomplete profile" },
@@ -88,10 +92,14 @@ function pctColor(pct) {
 }
 
 function Students() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   const [students, setStudents] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(MOBILE_PAGE);
 
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
@@ -103,6 +111,11 @@ function Students() {
   useEffect(() => {
     loadStudents();
   }, []);
+
+  // Mobile list restarts at the first page whenever the result set changes
+  useEffect(() => {
+    setVisibleCount(MOBILE_PAGE);
+  }, [search, filter]);
 
   const loadStudents = async () => {
     try {
@@ -382,7 +395,9 @@ function Students() {
       color: C.text,
       border: `1px solid ${C.line}`,
       borderRadius: R.card,
-      backgroundImage: "none"
+      backgroundImage: "none",
+      m: 2,
+      width: "calc(100% - 32px)"
     }
   };
 
@@ -412,12 +427,129 @@ function Students() {
     </Box>
   );
 
+  // Phone layout: one card per student instead of a wide grid
+  const renderMobileCard = (s, i) => {
+    const pct = completeness(s);
+    const color = pctColor(pct);
+    const off = !!s.isDisabled;
+    const stateColor = off ? "#EF4444" : "#22C55E";
+    const hasApps = (s.applicationsCount ?? 0) > 0;
+    const appColor = hasApps ? "#F59E0B" : "#64748B";
+
+    return (
+      <Box
+        key={s.id}
+        sx={{
+          border: `1px solid ${C.line}`,
+          borderRadius: R.card,
+          bgcolor: C.deep,
+          p: 1.75,
+          animation: "fadeUp 0.35s ease both",
+          animationDelay: `${Math.min(i, 7) * 0.04}s`,
+          transition: "border-color 0.2s ease",
+          "&:active": { borderColor: "rgba(99,102,241,0.4)" }
+        }}
+      >
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <UserAvatar name={s.name} photoUrl={s.photoUrl} size={42} tone="primary" />
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography noWrap sx={{ fontSize: 14.5, fontWeight: 700, color: "#F1F5F9", lineHeight: 1.35 }}>
+              {s.name || "-"}
+            </Typography>
+            <Typography noWrap sx={{ fontSize: 12.5, color: C.sub, lineHeight: 1.35 }}>
+              {s.email || "-"}
+            </Typography>
+          </Box>
+          <Chip
+            label={off ? "Disabled" : "Active"}
+            size="small"
+            sx={{
+              borderRadius: R.pill,
+              height: 24,
+              fontWeight: 600,
+              bgcolor: `${stateColor}1A`,
+              color: stateColor,
+              border: `1px solid ${stateColor}33`
+            }}
+          />
+        </Stack>
+
+        <Box sx={{ mt: 1.75 }}>
+          <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.6 }}>
+            <Typography sx={{ color: C.sub, fontSize: 12 }}>Profile completeness</Typography>
+            <Typography sx={{ color, fontSize: 12, fontWeight: 700 }}>{pct}%</Typography>
+          </Stack>
+          <LinearProgress
+            variant="determinate"
+            value={pct}
+            sx={{
+              height: 6,
+              borderRadius: "3px",
+              bgcolor: "rgba(148,163,184,0.15)",
+              "& .MuiLinearProgress-bar": { bgcolor: color, borderRadius: "3px" }
+            }}
+          />
+        </Box>
+
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1.5 }}>
+          <Typography sx={{ fontSize: 13, color: s.phone ? "#CBD5E1" : C.muted }}>
+            {s.phone || "Phone not added"}
+          </Typography>
+          <Chip
+            label={`${s.applicationsCount ?? 0} applied`}
+            size="small"
+            sx={{
+              borderRadius: R.pill,
+              height: 24,
+              fontWeight: 700,
+              bgcolor: `${appColor}1A`,
+              color: appColor,
+              border: `1px solid ${appColor}33`
+            }}
+          />
+        </Stack>
+
+        <Divider sx={{ my: 1.5, borderColor: C.line }} />
+
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <Switch
+              checked={!off}
+              onChange={(e) => handleToggleDisabled(s, !e.target.checked)}
+              color="success"
+              size="small"
+            />
+            <Typography sx={{ fontSize: 12.5, color: C.sub }}>Account access</Typography>
+          </Stack>
+          <Stack direction="row" spacing={0.5}>
+            <IconButton
+              onClick={() => handleView(s)}
+              size="small"
+              sx={{ color: "#818CF8", borderRadius: R.tile, "&:hover": { bgcolor: "rgba(99,102,241,0.14)" } }}
+            >
+              <VisibilityIcon fontSize="small" />
+            </IconButton>
+            <IconButton
+              onClick={() => handleDeleteClick(s)}
+              size="small"
+              sx={{ color: "#EF4444", borderRadius: R.tile, "&:hover": { bgcolor: "rgba(239,68,68,0.14)" } }}
+            >
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        </Stack>
+      </Box>
+    );
+  };
+
+  const mobileRows = filteredStudents.slice(0, visibleCount);
+
   return (
     <Box sx={{ width: "100%", maxWidth: "1600px" }}>
       {/* Header */}
       <Card
         sx={{
-          mb: 4,
+          mb: { xs: 2.5, md: 4 },
           borderRadius: R.card,
           background: "linear-gradient(135deg, rgba(16,21,38,0.9) 0%, rgba(13,18,32,0.9) 100%)",
           border: `1px solid ${C.line}`,
@@ -439,7 +571,7 @@ function Students() {
           }
         }}
       >
-        <CardContent sx={{ px: { xs: 3, md: 4.5 }, py: 3.75, position: "relative", zIndex: 1 }}>
+        <CardContent sx={{ px: { xs: 2.5, md: 4.5 }, py: { xs: 2.75, md: 3.75 }, position: "relative", zIndex: 1 }}>
           <Stack
             direction={{ xs: "column", md: "row" }}
             alignItems={{ xs: "flex-start", md: "center" }}
@@ -450,7 +582,7 @@ function Students() {
               <Typography variant="overline" sx={{ color: "#818CF8", letterSpacing: "0.14em", fontWeight: 600 }}>
                 JobMatrix Admin Panel
               </Typography>
-              <Typography variant="h4" fontWeight="700" sx={{ color: "#F8FAFC", mt: 0.5 }}>
+              <Typography variant="h4" fontWeight="700" sx={{ color: "#F8FAFC", mt: 0.5, fontSize: { xs: 26, md: 34 } }}>
                 Students
               </Typography>
               <Typography sx={{ color: C.sub, mt: 1, maxWidth: 760, lineHeight: 1.7, fontSize: 14.5 }}>
@@ -481,7 +613,7 @@ function Students() {
       </Card>
 
       {/* Stat cards */}
-      <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 2, md: 3 }}>
         {statCards.map((card, index) => (
           <Grid key={card.title} size={{ xs: 12, sm: 6, md: 3 }}>
             <Card
@@ -536,7 +668,7 @@ function Students() {
       {/* Table card */}
       <Card
         sx={{
-          mt: 3.5,
+          mt: { xs: 2.5, md: 3.5 },
           borderRadius: R.card,
           background: C.paper,
           border: `1px solid ${C.line}`,
@@ -546,7 +678,7 @@ function Students() {
           animationFillMode: "backwards"
         }}
       >
-        <CardContent sx={{ p: 3.5 }}>
+        <CardContent sx={{ p: { xs: 2, md: 3.5 }, "&:last-child": { pb: { xs: 2, md: 3.5 } } }}>
           <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2.25 }}>
             <Typography variant="h6" fontWeight="700" sx={{ color: "#F8FAFC", fontSize: 17 }}>
               All students
@@ -575,6 +707,7 @@ function Students() {
               size="small"
               sx={{
                 flex: 1,
+                width: { xs: "100%", md: "auto" },
                 maxWidth: { md: 420 },
                 "& .MuiOutlinedInput-root": {
                   color: C.text,
@@ -659,6 +792,34 @@ function Students() {
                   </Typography>
                 </Box>
               </Stack>
+            </Box>
+          ) : isMobile ? (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              {mobileRows.map((s, i) => renderMobileCard(s, i))}
+
+              {visibleCount < filteredStudents.length ? (
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={() => setVisibleCount((n) => n + MOBILE_PAGE)}
+                  sx={{
+                    textTransform: "none",
+                    borderRadius: R.tile,
+                    fontWeight: 600,
+                    py: 1.1,
+                    borderColor: "rgba(99,102,241,0.35)",
+                    color: "#A5B4FC",
+                    bgcolor: "rgba(99,102,241,0.1)",
+                    "&:hover": { borderColor: "#6366F1", bgcolor: "rgba(99,102,241,0.18)" }
+                  }}
+                >
+                  Load more ({filteredStudents.length - visibleCount} left)
+                </Button>
+              ) : (
+                <Typography sx={{ textAlign: "center", color: C.muted, fontSize: 12.5, pt: 0.5 }}>
+                  All {filteredStudents.length} students shown
+                </Typography>
+              )}
             </Box>
           ) : (
             <Box sx={{ height: 640, width: "100%", animation: "fadeIn 0.4s ease" }}>

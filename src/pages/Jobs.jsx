@@ -516,7 +516,7 @@ function Jobs() {
               sx={{
                 flex: "1 1 280px",
                 "& .MuiOutlinedInput-root": {
-                  bgcolor: "background.default", borderRadius: R.tile,
+                bgcolor: "transparent", borderRadius: R.tile,
                   transition: "box-shadow 0.2s ease",
                   "&.Mui-focused fieldset": { borderColor: "success.main" },
                   "&.Mui-focused": { boxShadow: `0 0 0 3px ${alpha("#22C55E", 0.18)}` }

@@ -55,7 +55,7 @@ function Dashboard() {
 
       const appDocs = applicationsSnap.docs.map((d) => d.data());
       setAppStats({
-        pending: appDocs.filter((a) => a.status === "Pending").length,
+       pending: appDocs.filter((a) => (a.status || "Applied") === "Applied").length,
         shortlisted: appDocs.filter((a) => a.status === "Shortlisted").length,
         rejected: appDocs.filter((a) => a.status === "Rejected").length
       });
@@ -331,7 +331,7 @@ function Dashboard() {
                       </Stack>
                     ) : card.key === "applications" ? (
                       <Typography sx={{ color: "#8B96AB", fontWeight: 500, fontSize: 11.5, lineHeight: 1.5 }}>
-                        {appStats.shortlisted} shortlisted &middot; {appStats.pending} pending &middot; {appStats.rejected} rejected
+                        {appStats.shortlisted} shortlisted &middot; {appStats.pending} applied &middot; {appStats.rejected} rejected
                       </Typography>
                     ) : (
                       <Stack direction="row" spacing={0.75} alignItems="center">
@@ -373,7 +373,7 @@ function Dashboard() {
                     {item.jobTitle || "Application"}
                   </Typography>
                   <Typography sx={{ color: "#8B96AB", mt: 0.4, fontSize: 13.5 }}>
-                    {item.companyName ? `${item.companyName} \u2022 ${item.status || "Pending"}` : "Status: " + (item.status || "Pending")}
+                    {item.companyName ? `${item.companyName} \u2022 ${item.status || "Applied"}` : "Status: " + (item.status || "Applied")}
                   </Typography>
                 </Box>
               </Stack>

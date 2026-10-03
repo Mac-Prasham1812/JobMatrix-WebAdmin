@@ -1,29 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  TextField,
-  InputAdornment,
-  CircularProgress,
-  Chip,
-  Button,
-  Avatar,
-  Stack,
-  IconButton,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Divider,
-  Fade,
-  Select,
-  MenuItem,
-  Fab,
-  Grow
+  Box, Card, CardContent, Typography, TextField, InputAdornment, CircularProgress,
+  Chip, Button, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
+  Divider, Fade, Select, MenuItem, Grow, Grid, Skeleton
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 
 import SearchIcon from "@mui/icons-material/Search";
 import AssignmentIcon from "@mui/icons-material/Assignment";
@@ -32,6 +13,10 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import CloseIcon from "@mui/icons-material/Close";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
+import BlockIcon from "@mui/icons-material/Block";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 
 import { DataGrid } from "@mui/x-data-grid";
 import { collection, getDocs, deleteDoc, doc, writeBatch, getDoc, addDoc } from "firebase/firestore";
@@ -40,9 +25,10 @@ import { db, auth } from "../firebase/firebase";
 import { exportToCsv } from "../utils/exportCsv";
 import UserAvatar from "../components/UserAvatar";
 
-// Update this once the backend is deployed on Render (Phase 7).
-// For now it points at the local Node/Express server.
 const API_BASE_URL = "https://jobmatrix-backend-cd5v.onrender.com";
+
+// Fixed px radii so the global theme borderRadius (18) does not inflate shapes
+const R = { card: "14px", tile: "10px", pill: "12px" };
 
 const STATUS_OPTIONS = ["Applied", "In Review", "Shortlisted", "Rejected"];
 
@@ -53,49 +39,116 @@ const STATUS_MESSAGES = {
   Applied: (job, company) => `Your application status for ${job} at ${company} was updated to Applied.`
 };
 
-function formatTime(value) {
-  if (!value) return "";
-  if (typeof value?.toMillis === "function") {
-    return new Date(value.toMillis()).toLocaleString();
-  }
-  if (typeof value?.seconds === "number") {
-    return new Date(value.seconds * 1000).toLocaleString();
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+const FILTERS = [{ key: "all", label: "All" }].concat(
+  STATUS_OPTIONS.map((s) => ({ key: s.toLowerCase(), label: s }))
+);
+
+const STATUS_COLORS = {
+  applied: "#F59E0B",
+  "in review": "#06B6D4",
+  shortlisted: "#22C55E",
+  rejected: "#EF4444"
+};
+const statusColor = (s) => STATUS_COLORS[(s || "Applied").toLowerCase()] || "#94A3B8";
+
+const getTimeValue = (v) => {
+  if (!v) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v.toMillis === "function") return v.toMillis();
+  if (typeof v.seconds === "number") return v.seconds * 1000;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? 0 : t;
+};
+const formatTime = (v) => (getTimeValue(v) ? new Date(getTimeValue(v)).toLocaleString() : "");
+
+function StatusChip({ label }) {
+  const c = statusColor(label);
+  const live = (label || "").toLowerCase() === "shortlisted";
+  return (
+    <Chip
+      size="small"
+      label={label || "Applied"}
+      sx={{
+        borderRadius: R.pill,
+        color: c,
+        bgcolor: alpha(c, 0.14),
+        border: `1px solid ${alpha(c, 0.3)}`,
+        fontWeight: 700,
+        ...(live && {
+          "&::before": {
+            content: '""', display: "inline-block", width: 6, height: 6, borderRadius: "50%",
+            bgcolor: c, ml: 0.8, mr: -0.2, animation: "pulseDot 1.8s infinite"
+          }
+        })
+      }}
+    />
+  );
 }
 
-function getTimeValue(value) {
-  if (!value) return 0;
-  if (typeof value?.toMillis === "function") return value.toMillis();
-  if (typeof value?.seconds === "number") return value.seconds * 1000;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+// Dashboard-style glow stat card
+function StatCard({ label, value, sub, subDot, color, icon, loading, delay = 0 }) {
+  return (
+    <Card
+      sx={{
+        borderRadius: R.card,
+        background: (t) => `linear-gradient(135deg, ${alpha(color, 0.15)} 0%, ${t.palette.background.paper} 65%)`,
+        border: `1px solid ${alpha(color, 0.33)}`,
+        boxShadow: `0 0 22px ${alpha(color, 0.12)}`,
+        position: "relative",
+        overflow: "hidden",
+        animation: "fadeUp 0.4s ease",
+        animationDelay: `${delay}s`,
+        animationFillMode: "backwards",
+        transition: "transform 0.25s ease, box-shadow 0.25s ease",
+        "&:hover": { transform: "translateY(-4px)", boxShadow: `0 0 30px ${alpha(color, 0.25)}` }
+      }}
+    >
+      <CardContent sx={{ p: 2.25, display: "flex", alignItems: "center", gap: 2 }}>
+        <Box
+          sx={{
+            width: 52, height: 52, borderRadius: R.tile, flexShrink: 0, color,
+            bgcolor: alpha(color, 0.13), border: `1px solid ${alpha(color, 0.33)}`,
+            boxShadow: `0 0 16px ${alpha(color, 0.2)}`,
+            display: "flex", alignItems: "center", justifyContent: "center"
+          }}
+        >
+          {icon}
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>{label}</Typography>
+          {loading ? (
+            <Skeleton variant="text" width={56} height={36} sx={{ transform: "none" }} />
+          ) : (
+            <Typography sx={{ color: "text.primary", fontWeight: 700, fontSize: 28, lineHeight: 1.2 }}>
+              {value}
+            </Typography>
+          )}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            {subDot ? (
+              <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: color }} />
+            ) : (
+              <TrendingUpIcon sx={{ color, fontSize: 14 }} />
+            )}
+            <Typography sx={{ color: "text.secondary", fontWeight: 500, fontSize: 12 }}>{sub}</Typography>
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
+  );
 }
 
-function initials(name) {
-  if (!name) return "?";
-  const parts = name.trim().split(" ");
-  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
-}
-
-function statusColor(status) {
-  const s = (status || "Applied").toLowerCase();
-  if (s === "shortlisted") return { color: "#22C55E", bg: "rgba(34,197,94,0.14)" };
-  if (s === "rejected") return { color: "#EF4444", bg: "rgba(239,68,68,0.14)" };
-  if (s === "in review") return { color: "#06B6D4", bg: "rgba(6,182,212,0.14)" };
-  return { color: "#F59E0B", bg: "rgba(245,158,11,0.14)" }; // Applied
-}
+const dialogPaper = {
+  sx: { bgcolor: "background.paper", backgroundImage: "none", border: "1px solid", borderColor: "divider", borderRadius: R.card }
+};
 
 function Applications() {
   const [applications, setApplications] = useState([]);
-  const [filteredApplications, setFilteredApplications] = useState([]);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [resumeLoadingId, setResumeLoadingId] = useState(null);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const [selectionModel, setSelectionModel] = useState([]);
@@ -103,8 +156,8 @@ function Applications() {
   const [bulkStatus, setBulkStatus] = useState("Shortlisted");
   const [bulkUpdating, setBulkUpdating] = useState(false);
 
-  // DataGrid's selection model shape differs across @mui/x-data-grid versions
-  // (plain array in v6, {type, ids: Set} in v7+) — normalize either into an array.
+  // DataGrid's selection model shape differs across versions (array in v6,
+  // {type, ids: Set} in v7+) - normalize either into an array.
   const normalizeSelection = (model) => {
     if (Array.isArray(model)) return model;
     if (model && model.ids) return Array.from(model.ids);
@@ -115,42 +168,22 @@ function Applications() {
     loadApplications();
   }, []);
 
+  // Selection must never silently include rows the admin can no longer see
   useEffect(() => {
-    const value = search.toLowerCase().trim();
-
-    const filtered = applications.filter((application) => {
-      const jobTitle = (application.jobTitle || "").toLowerCase();
-      const companyName = (application.companyName || "").toLowerCase();
-      const studentName = (application.studentName || "").toLowerCase();
-      const status = (application.status || "").toLowerCase();
-      const applicationId = (application.applicationId || "").toLowerCase();
-
-      return (
-        jobTitle.includes(value) ||
-        companyName.includes(value) ||
-        studentName.includes(value) ||
-        status.includes(value) ||
-        applicationId.includes(value)
-      );
-    });
-
-    setFilteredApplications(filtered);
-  }, [search, applications]);
+    if (selectionModel.length > 0) {
+      setSelectionModel([]);
+      setGridKey((k) => k + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, filter]);
 
   const loadApplications = async () => {
     try {
       const snapshot = await getDocs(collection(db, "applications"));
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => getTimeValue(b.appliedAt) - getTimeValue(a.appliedAt));
 
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      data.sort(
-        (a, b) => getTimeValue(b.appliedAt) - getTimeValue(a.appliedAt)
-      );
-
-      // Resolve student name/photo once per unique studentId.
+      // Resolve student name/photo once per unique studentId
       const uniqueIds = [...new Set(data.map((a) => a.studentId).filter(Boolean))];
       const studentMap = {};
       await Promise.all(
@@ -164,14 +197,13 @@ function Applications() {
         })
       );
 
-      const enriched = data.map((a) => ({
-        ...a,
-        studentName: a.studentId ? studentMap[a.studentId]?.name || a.studentId : "Unknown",
-        studentPhotoUrl: a.studentId ? studentMap[a.studentId]?.photoUrl : null
-      }));
-
-      setApplications(enriched);
-      setFilteredApplications(enriched);
+      setApplications(
+        data.map((a) => ({
+          ...a,
+          studentName: a.studentId ? studentMap[a.studentId]?.name || a.studentId : "Unknown",
+          studentPhotoUrl: a.studentId ? studentMap[a.studentId]?.photoUrl : null
+        }))
+      );
     } catch (error) {
       console.log("Error loading applications:", error);
     } finally {
@@ -179,8 +211,30 @@ function Applications() {
     }
   };
 
-  // resumeLink now stores the B2 file key, not a direct URL. A fresh signed
-  // URL must be fetched from the backend right before opening.
+  const filteredApplications = useMemo(() => {
+    const v = search.toLowerCase().trim();
+    return applications.filter((a) => {
+      const status = (a.status || "Applied").toLowerCase();
+      if (filter !== "all" && status !== filter) return false;
+      if (!v) return true;
+      return [a.jobTitle, a.companyName, a.studentName, status, a.applicationId].some((f) =>
+        String(f || "").toLowerCase().includes(v)
+      );
+    });
+  }, [applications, search, filter]);
+
+  const stats = useMemo(() => {
+    const st = (a) => (a.status || "Applied").toLowerCase();
+    return {
+      total: applications.length,
+      applied: applications.filter((a) => st(a) === "applied").length,
+      review: applications.filter((a) => st(a) === "in review").length,
+      shortlisted: applications.filter((a) => st(a) === "shortlisted").length,
+      rejected: applications.filter((a) => st(a) === "rejected").length
+    };
+  }, [applications]);
+
+  // resumeLink stores the B2 file key, not a URL. Fetch a fresh signed URL first.
   const handleOpenResume = async (row) => {
     const key = row.resumeLink;
     if (!key) return;
@@ -193,17 +247,12 @@ function Applications() {
         return;
       }
       const token = await user.getIdToken(true);
-
       const res = await fetch(`${API_BASE_URL}/resume/${key}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-
       if (!res.ok) throw new Error("Failed to fetch resume URL");
-
       const data = await res.json();
-      if (data.url) {
-        window.open(data.url, "_blank", "noopener,noreferrer");
-      }
+      if (data.url) window.open(data.url, "_blank", "noopener,noreferrer");
     } catch (error) {
       console.log("Error opening resume:", error);
     } finally {
@@ -211,39 +260,12 @@ function Applications() {
     }
   };
 
-  const handleDeleteClick = (application) => {
-    setDeleteTarget(application);
-    setDeleteOpen(true);
-  };
-
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
-
     setDeleting(true);
     try {
       await deleteDoc(doc(db, "applications", deleteTarget.id));
-
-      const updated = applications.filter((a) => a.id !== deleteTarget.id);
-      setApplications(updated);
-      setFilteredApplications(
-        updated.filter((application) => {
-          const value = search.toLowerCase().trim();
-          const jobTitle = (application.jobTitle || "").toLowerCase();
-          const companyName = (application.companyName || "").toLowerCase();
-          const studentName = (application.studentName || "").toLowerCase();
-          const status = (application.status || "").toLowerCase();
-          const applicationId = (application.applicationId || "").toLowerCase();
-          return (
-            jobTitle.includes(value) ||
-            companyName.includes(value) ||
-            studentName.includes(value) ||
-            status.includes(value) ||
-            applicationId.includes(value)
-          );
-        })
-      );
-
-      setDeleteOpen(false);
+      setApplications((prev) => prev.filter((a) => a.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (error) {
       console.log("Delete application error:", error);
@@ -252,9 +274,7 @@ function Applications() {
     }
   };
 
-  // Phase 3 — Bulk Actions: update status on every selected application in
-  // a single atomic Firestore batch write (max 500 per batch, safely under
-  // any realistic selection size here).
+  // Bulk status update in one atomic Firestore batch
   const handleBulkStatusUpdate = async () => {
     if (selectionModel.length === 0) return;
 
@@ -269,20 +289,12 @@ function Applications() {
       await batch.commit();
 
       setApplications((prev) =>
-        prev.map((app) =>
-          selectionModel.includes(app.id) ? { ...app, status: bulkStatus } : app
-        )
-      );
-      setFilteredApplications((prev) =>
-        prev.map((app) =>
-          selectionModel.includes(app.id) ? { ...app, status: bulkStatus } : app
-        )
+        prev.map((app) => (selectionModel.includes(app.id) ? { ...app, status: bulkStatus } : app))
       );
       setSelectionModel([]);
       setGridKey((k) => k + 1);
 
-      // Fire student push notifications in the background — a notification
-      // failure should never block or roll back the status update itself.
+      // Notifications run in the background; a failure never rolls back the update
       notifyStudentsOfStatusChange(targets, bulkStatus);
     } catch (error) {
       console.log("Bulk status update error:", error);
@@ -301,9 +313,7 @@ function Applications() {
         const message = messageFor(app.jobTitle || "the job", app.companyName || "the company");
 
         try {
-          // Write the same Firestore notification doc the employer-triggered
-          // flow creates, so it also appears on the student's in-app
-          // notification screen (not just the push tray).
+          // Same notification doc the employer flow creates, so it shows in-app too
           await addDoc(collection(db, "notifications"), {
             recipientId: app.studentId,
             studentId: app.studentId,
@@ -342,7 +352,6 @@ function Applications() {
     );
   };
 
-  // Phase 3 — CSV Export
   const handleExportCsv = () => {
     const rows = filteredApplications.map((a) => ({
       jobTitle: a.jobTitle || "",
@@ -365,174 +374,111 @@ function Applications() {
     ]);
   };
 
-  const stats = useMemo(() => {
-    const applied = applications.filter(
-      (app) => (app.status || "Applied").toLowerCase() === "applied"
-    ).length;
-
-    const shortlisted = applications.filter(
-      (app) => (app.status || "").toLowerCase() === "shortlisted"
-    ).length;
-
-    const rejected = applications.filter(
-      (app) => (app.status || "").toLowerCase() === "rejected"
-    ).length;
-
-    return {
-      applied,
-      shortlisted,
-      rejected,
-      total: applications.length
-    };
-  }, [applications]);
-
   const columns = [
     {
       field: "jobTitle",
-      headerName: "Job Title",
-      flex: 1.3,
-      minWidth: 200,
-      renderCell: (params) => (
-        <Stack direction="row" spacing={1.3} alignItems="center" sx={{ height: "100%" }}>
-          <Avatar
-            sx={{
-              width: 30,
-              height: 30,
-              fontSize: 12,
-              fontWeight: 700,
-              bgcolor: "rgba(245,158,11,0.16)",
-              color: "warning.main",
-              border: "1px solid rgba(245,158,11,0.3)"
-            }}
-          >
-            {initials(params.value)}
-          </Avatar>
-          <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>
-            {params.value || "-"}
-          </Typography>
-        </Stack>
+      headerName: "Job",
+      flex: 1.6,
+      minWidth: 260,
+      renderCell: (p) => (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, height: "100%" }}>
+          <UserAvatar name={p.row.companyName || p.row.jobTitle} size={36} tone="primary" />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography noWrap sx={{ fontSize: 14, fontWeight: 600, color: "text.primary", lineHeight: 1.3 }}>
+              {p.row.jobTitle || "-"}
+            </Typography>
+            <Typography noWrap sx={{ fontSize: 12, color: "text.secondary", lineHeight: 1.3 }}>
+              {p.row.companyName || "-"}
+            </Typography>
+          </Box>
+        </Box>
       )
-    },
-    {
-      field: "companyName",
-      headerName: "Company",
-      flex: 1.2,
-      minWidth: 160
     },
     {
       field: "studentName",
       headerName: "Student",
       flex: 1.3,
-      minWidth: 200,
-      renderCell: (params) => (
-        <Tooltip title={params.row.studentId || "-"}>
-          <Stack direction="row" spacing={1.3} alignItems="center" sx={{ height: "100%" }}>
-            <UserAvatar name={params.value} photoUrl={params.row.studentPhotoUrl} size={30} tone="primary" />
-            <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>
-              {params.value || "Unknown"}
+      minWidth: 210,
+      renderCell: (p) => (
+        <Tooltip title={p.row.studentId || "-"}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, height: "100%", minWidth: 0 }}>
+            <UserAvatar name={p.value} photoUrl={p.row.studentPhotoUrl} size={34} tone="primary" />
+            <Typography noWrap sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>
+              {p.value || "Unknown"}
             </Typography>
-          </Stack>
+          </Box>
         </Tooltip>
       )
     },
     {
       field: "status",
       headerName: "Status",
-      flex: 0.9,
+      flex: 0.8,
       minWidth: 140,
-      renderCell: (params) => {
-        const { color, bg } = statusColor(params.value);
-
-        return (
-          <Chip
-            label={params.value || "Applied"}
-            size="small"
-            sx={{
-              color,
-              bgcolor: bg,
-              border: `1px solid ${color}33`,
-              fontWeight: 700,
-              ...((params.value || "").toLowerCase() === "shortlisted" && {
-                "&::before": {
-                  content: '""',
-                  display: "inline-block",
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  bgcolor: "#22C55E",
-                  mr: 0.7,
-                  animation: "pulseDot 1.8s infinite"
-                }
-              })
-            }}
-          />
-        );
-      }
+      renderCell: (p) => <StatusChip label={p.value} />
     },
     {
       field: "resumeLink",
       headerName: "Resume",
-      flex: 1,
-      minWidth: 150,
-      renderCell: (params) =>
-        params.value ? (
+      flex: 0.9,
+      minWidth: 160,
+      sortable: false,
+      renderCell: (p) => {
+        if (!p.value) {
+          return <Typography sx={{ color: "text.secondary", fontSize: 13 }}>No resume</Typography>;
+        }
+        const busy = resumeLoadingId === p.row.id;
+        return (
           <Button
-            variant="contained"
             size="small"
+            variant="outlined"
+            disabled={busy}
+            onClick={() => handleOpenResume(p.row)}
             startIcon={
-              resumeLoadingId === params.row.id ? (
-                <CircularProgress size={14} sx={{ color: "#fff" }} />
-              ) : (
-                <DescriptionIcon sx={{ fontSize: 16 }} />
-              )
+              busy ? <CircularProgress size={14} color="inherit" /> : <DescriptionIcon sx={{ fontSize: 16 }} />
             }
-            disabled={resumeLoadingId === params.row.id}
-            onClick={() => handleOpenResume(params.row)}
             sx={{
               textTransform: "none",
-              borderRadius: 2,
+              borderRadius: R.tile,
               fontWeight: 700,
-              bgcolor: "primary.main",
+              color: "primary.light",
+              bgcolor: alpha("#6366F1", 0.12),
+              borderColor: alpha("#6366F1", 0.35),
               transition: "background-color 0.15s ease, transform 0.15s ease",
-              "&:hover": {
-                bgcolor: "primary.dark",
-                transform: "scale(1.04)"
-              }
+              "&:hover": { bgcolor: alpha("#6366F1", 0.22), borderColor: "#6366F1", transform: "scale(1.03)" }
             }}
           >
-            {resumeLoadingId === params.row.id ? "Opening..." : "Open Resume"}
+            {busy ? "Opening..." : "Open resume"}
           </Button>
-        ) : (
-          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-            No Resume
-          </Typography>
-        )
+        );
+      }
     },
     {
       field: "appliedAt",
-      headerName: "Applied At",
-      flex: 1.2,
-      minWidth: 180,
-      valueGetter: (value, row) => formatTime(row.appliedAt)
+      headerName: "Applied",
+      flex: 1,
+      minWidth: 170,
+      valueGetter: (value, row) => getTimeValue(row.appliedAt),
+      renderCell: (p) => (
+        <Typography sx={{ fontSize: 13.5, color: "text.primary" }}>{formatTime(p.row.appliedAt) || "-"}</Typography>
+      )
     },
     {
       field: "actions",
       headerName: "Actions",
-      minWidth: 90,
+      width: 90,
       sortable: false,
       filterable: false,
-      renderCell: (params) => (
+      renderCell: (p) => (
         <Tooltip title="Delete application">
           <IconButton
-            onClick={() => handleDeleteClick(params.row)}
             size="small"
+            onClick={() => setDeleteTarget(p.row)}
             sx={{
               color: "#EF4444",
+              borderRadius: R.tile,
               transition: "transform 0.15s ease, background-color 0.15s ease",
-              "&:hover": {
-                bgcolor: "rgba(239,68,68,0.14)",
-                transform: "scale(1.12)"
-              }
+              "&:hover": { bgcolor: alpha("#EF4444", 0.14), transform: "scale(1.12)" }
             }}
           >
             <DeleteIcon fontSize="small" />
@@ -542,209 +488,241 @@ function Applications() {
     }
   ];
 
+  const pct = (n) => (stats.total ? Math.round((n / stats.total) * 100) : 0);
+
   return (
     <Box sx={{ width: "100%", maxWidth: "1600px" }}>
+      {/* Header */}
       <Card
         sx={{
-          mb: 3,
-          position: "relative",
-          overflow: "hidden",
-          borderRadius: 3.5,
-          background: "linear-gradient(135deg, rgba(16,21,38,0.95), rgba(13,18,32,0.95))",
+          mb: 4,
+          borderRadius: R.card,
+          background: (t) =>
+            `linear-gradient(135deg, ${alpha(t.palette.background.paper, 0.9)} 0%, ${alpha(t.palette.background.default, 0.9)} 100%)`,
           border: "1px solid",
           borderColor: "divider",
-          boxShadow: "0 10px 24px rgba(0,0,0,0.16)",
-          animation: "fadeUp 0.45s ease both"
+          boxShadow: "0 14px 32px rgba(0,0,0,0.2)",
+          backdropFilter: "blur(16px)",
+          animation: "fadeUp 0.4s ease",
+          position: "relative",
+          overflow: "hidden",
+          "&::after": {
+            content: '""',
+            position: "absolute",
+            top: -60, right: -60, width: 220, height: 220, borderRadius: "50%",
+            background: `radial-gradient(circle, ${alpha("#F59E0B", 0.18)}, transparent 70%)`,
+            pointerEvents: "none"
+          }
         }}
       >
-        <Box
-          sx={{
-            position: "absolute",
-            top: -60,
-            right: -40,
-            width: 220,
-            height: 220,
-            borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(245,158,11,0.2), transparent 70%)",
-            animation: "driftA 9s ease-in-out infinite",
-            pointerEvents: "none"
-          }}
-        />
-        <CardContent sx={{ p: 3, position: "relative" }}>
-          <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-            <Box>
-              <Typography variant="h4" fontWeight={700} color="text.primary">
+        <CardContent sx={{ px: { xs: 3, md: 4.5 }, py: 3.75, position: "relative", zIndex: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
+              alignItems: { xs: "flex-start", md: "center" },
+              justifyContent: "space-between",
+              gap: 2.5
+            }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="overline" sx={{ color: "primary.light", letterSpacing: "0.14em", fontWeight: 600 }}>
+                JobMatrix Admin Panel
+              </Typography>
+              <Typography variant="h4" fontWeight={700} sx={{ color: "text.primary", mt: 0.5 }}>
                 Applications
               </Typography>
-              <Typography color="text.secondary" sx={{ mt: 1 }}>
-                Manage all job applications from students.
+              <Typography sx={{ color: "text.secondary", mt: 1, lineHeight: 1.7, fontSize: 14.5 }}>
+                Track every student application and update statuses in bulk.
               </Typography>
             </Box>
 
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <AssignmentIcon sx={{ fontSize: 50, color: "warning.main" }} />
-            </Stack>
-          </Box>
-
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, mt: 2.5, alignItems: "center", justifyContent: "space-between" }}>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: { xs: "flex-start", md: "flex-end" }, gap: 1, flexShrink: 0 }}>
               <Chip
-                label={`Total: ${stats.total}`}
+                icon={
+                  <Box
+                    sx={{
+                      width: 8, height: 8, borderRadius: "50%", ml: 1.25,
+                      bgcolor: loading ? "#F59E0B" : "#22C55E",
+                      animation: loading ? "none" : "pulseDot 1.8s ease-in-out infinite"
+                    }}
+                  />
+                }
+                label={loading ? "Syncing..." : "Live Firebase Data"}
                 sx={{
-                  bgcolor: "rgba(99,102,241,0.12)",
-                  color: "primary.light",
-                  border: "1px solid rgba(99,102,241,0.2)",
-                  fontWeight: 700
+                  borderRadius: R.pill, px: 1, fontWeight: 600, color: "primary.light",
+                  bgcolor: alpha("#6366F1", 0.12), border: `1px solid ${alpha("#6366F1", 0.22)}`,
+                  "& .MuiChip-icon": { order: -1 }
                 }}
               />
-              <Chip
-                label={`Applied: ${stats.applied}`}
+              <Button
+                variant="outlined"
+                startIcon={<DownloadIcon sx={{ fontSize: 18 }} />}
+                onClick={handleExportCsv}
                 sx={{
-                  bgcolor: "rgba(245,158,11,0.12)",
+                  textTransform: "none",
+                  borderRadius: R.pill,
+                  fontWeight: 600,
+                  px: 2.25,
+                  borderColor: alpha("#F59E0B", 0.4),
                   color: "warning.main",
-                  border: "1px solid rgba(245,158,11,0.2)",
-                  fontWeight: 700
+                  bgcolor: alpha("#F59E0B", 0.1),
+                  "&:hover": { borderColor: "#F59E0B", bgcolor: alpha("#F59E0B", 0.18) }
                 }}
-              />
-              <Chip
-                label={`Shortlisted: ${stats.shortlisted}`}
-                sx={{
-                  bgcolor: "rgba(34,197,94,0.12)",
-                  color: "success.main",
-                  border: "1px solid rgba(34,197,94,0.2)",
-                  fontWeight: 700
-                }}
-              />
-              <Chip
-                label={`Rejected: ${stats.rejected}`}
-                sx={{
-                  bgcolor: "rgba(239,68,68,0.12)",
-                  color: "#FCA5A5",
-                  border: "1px solid rgba(239,68,68,0.2)",
-                  fontWeight: 700
-                }}
-              />
+              >
+                Export CSV
+              </Button>
             </Box>
-
-            <Button
-              variant="outlined"
-              startIcon={<DownloadIcon sx={{ fontSize: 18 }} />}
-              onClick={handleExportCsv}
-              sx={{
-                textTransform: "none",
-                borderRadius: 2.5,
-                fontWeight: 700,
-                borderColor: "divider",
-                color: "text.primary",
-                transition: "border-color 0.15s ease, transform 0.15s ease",
-                "&:hover": { borderColor: "warning.main", transform: "scale(1.03)" }
-              }}
-            >
-              Export CSV
-            </Button>
           </Box>
         </CardContent>
       </Card>
 
+      {/* Stat cards */}
+      <Grid container spacing={3} sx={{ mb: 3.5 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <StatCard label="Total Applications" value={stats.total} sub="All submissions" color="#6366F1" icon={<AssignmentIcon sx={{ fontSize: 28 }} />} loading={loading} delay={0} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <StatCard label="Awaiting Review" value={stats.applied} sub={`${stats.review} in review`} subDot color="#F59E0B" icon={<PendingActionsIcon sx={{ fontSize: 28 }} />} loading={loading} delay={0.07} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <StatCard label="Shortlisted" value={stats.shortlisted} sub={`${pct(stats.shortlisted)}% of all`} subDot color="#22C55E" icon={<TaskAltIcon sx={{ fontSize: 28 }} />} loading={loading} delay={0.14} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <StatCard label="Rejected" value={stats.rejected} sub={`${pct(stats.rejected)}% of all`} subDot color="#EF4444" icon={<BlockIcon sx={{ fontSize: 28 }} />} loading={loading} delay={0.21} />
+        </Grid>
+      </Grid>
+
+      {/* Table card */}
       <Card
         sx={{
-          borderRadius: 3.5,
-          background: "background.paper",
+          borderRadius: R.card,
+          bgcolor: "background.paper",
           border: "1px solid",
           borderColor: "divider",
-          boxShadow: "0 10px 24px rgba(0,0,0,0.16)",
+          boxShadow: "0 10px 28px rgba(0,0,0,0.18)",
           animation: "fadeUp 0.5s ease both",
-          animationDelay: "0.08s"
+          animationDelay: "0.1s"
         }}
       >
-        <CardContent sx={{ p: 3 }}>
-          <TextField
-            fullWidth
-            placeholder="Search application..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{
-              mb: 3,
-              "& .MuiOutlinedInput-root": {
-                color: "#fff",
-                backgroundColor: "#0D1220",
-                borderRadius: 2.5,
-                transition: "border-color 0.2s ease, box-shadow 0.2s ease",
-                "& fieldset": { borderColor: "divider" },
-                "&:hover fieldset": { borderColor: "#2A3447" },
-                "&.Mui-focused fieldset": { borderColor: "warning.main" },
-                "&.Mui-focused": { boxShadow: "0 0 0 3px rgba(245,158,11,0.18)" }
-              },
-              "& .MuiInputBase-input::placeholder": { color: "text.secondary", opacity: 1 }
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ color: "text.secondary" }} />
-                </InputAdornment>
-              )
-            }}
-          />
+        <CardContent sx={{ p: 3.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Typography variant="h6" fontWeight={700} sx={{ color: "text.primary", fontSize: 17 }}>
+              All Applications
+            </Typography>
+            <Chip
+              size="small"
+              label={`${filteredApplications.length} shown`}
+              sx={{
+                borderRadius: R.pill, height: 24, fontWeight: 600, color: "#F59E0B",
+                bgcolor: alpha("#F59E0B", 0.1), border: `1px solid ${alpha("#F59E0B", 0.2)}`
+              }}
+            />
+          </Box>
+
+          <Divider sx={{ my: 2.25 }} />
+
+          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2, mb: 3 }}>
+            <TextField
+              placeholder="Search job, company, student, status..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{
+                flex: "1 1 280px",
+                "& .MuiOutlinedInput-root": {
+                  bgcolor: "transparent",
+                  borderRadius: R.tile,
+                  transition: "box-shadow 0.2s ease",
+                  "&.Mui-focused fieldset": { borderColor: "warning.main" },
+                  "&.Mui-focused": { boxShadow: `0 0 0 3px ${alpha("#F59E0B", 0.18)}` }
+                }
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: "text.secondary" }} />
+                  </InputAdornment>
+                )
+              }}
+            />
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+              {FILTERS.map((f) => {
+                const on = filter === f.key;
+                const c = f.key === "all" ? "#F59E0B" : statusColor(f.label);
+                return (
+                  <Chip
+                    key={f.key}
+                    label={f.label}
+                    onClick={() => setFilter(f.key)}
+                    sx={{
+                      borderRadius: R.pill,
+                      fontWeight: 700,
+                      color: on ? c : "text.secondary",
+                      bgcolor: on ? alpha(c, 0.14) : "transparent",
+                      border: "1px solid",
+                      borderColor: on ? alpha(c, 0.4) : "divider",
+                      boxShadow: on ? `0 0 14px ${alpha(c, 0.2)}` : "none",
+                      transition: "all 0.15s ease"
+                    }}
+                  />
+                );
+              })}
+            </Box>
+          </Box>
 
           {loading ? (
-            <Box display="flex" flexDirection="column" alignItems="center" gap={1.5} py={6} sx={{ animation: "fadeIn 0.3s ease" }}>
+            <Box display="flex" flexDirection="column" alignItems="center" gap={1.5} py={6}>
               <CircularProgress sx={{ color: "warning.main" }} />
-              <Typography color="text.secondary" fontSize={13}>
-                Loading applications...
-              </Typography>
+              <Typography color="text.secondary" fontSize={13}>Loading applications...</Typography>
             </Box>
           ) : filteredApplications.length === 0 ? (
-            <Box display="flex" flexDirection="column" alignItems="center" gap={1} py={8} sx={{ animation: "fadeIn 0.35s ease" }}>
+            <Box display="flex" flexDirection="column" alignItems="center" gap={1} py={8}>
               <AssignmentIcon sx={{ fontSize: 42, color: "text.secondary", opacity: 0.5 }} />
               <Typography color="text.secondary">No applications found.</Typography>
             </Box>
           ) : (
             <Box
               sx={{
-                height: 650,
-                width: "100%",
-                animation: "fadeIn 0.4s ease",
-                "& .MuiDataGrid-root": { border: 0 }
+                height: 650, width: "100%", animation: "fadeIn 0.4s ease",
+                border: "1px solid", borderColor: "divider", borderRadius: R.tile, overflow: "hidden"
               }}
             >
               <DataGrid
                 key={gridKey}
                 rows={filteredApplications}
                 columns={columns}
+                rowHeight={64}
                 checkboxSelection
                 disableRowSelectionOnClick
                 onRowSelectionModelChange={(model) => setSelectionModel(normalizeSelection(model))}
                 pageSizeOptions={[5, 10, 20, 50]}
-                initialState={{
-                  pagination: { paginationModel: { pageSize: 10, page: 0 } }
-                }}
+                initialState={{ pagination: { paginationModel: { pageSize: 10, page: 0 } } }}
                 sx={{
                   border: 0,
-                  color: "#fff",
-                  backgroundColor: "background.paper",
-                  "& .MuiDataGrid-columnHeaders": {
-                    backgroundColor: "#0D1220",
-                    color: "text.primary",
-                    borderBottom: "1px solid",
-                    borderColor: "divider"
+                  borderRadius: 0,
+                  color: "text.primary",
+                  backgroundColor: "transparent",
+                  "--DataGrid-containerBackground": "transparent",
+                  "--DataGrid-pinnedBackground": "transparent",
+                  "& .MuiDataGrid-main, & .MuiDataGrid-virtualScroller, & .MuiDataGrid-virtualScrollerContent": {
+                    backgroundColor: "transparent"
                   },
-                  "& .MuiDataGrid-columnHeaderTitle": { fontWeight: 700 },
-                  "& .MuiDataGrid-cell": { borderColor: "divider" },
+                  "& .MuiDataGrid-columnHeaders, & .MuiDataGrid-columnHeader, & .MuiDataGrid-filler, & .MuiDataGrid-scrollbarFiller": {
+                    backgroundColor: "transparent"
+                  },
+                  "& .MuiDataGrid-columnHeaders": { borderBottom: "1px solid", borderColor: "divider" },
+                  "& .MuiDataGrid-columnHeaderTitle": { fontWeight: 700, fontSize: 13 },
+                  "& .MuiDataGrid-cell": { borderColor: "divider", display: "flex", alignItems: "center" },
                   "& .MuiDataGrid-row": {
-                    backgroundColor: "background.paper",
+                    backgroundColor: "transparent",
                     transition: "background-color 0.15s ease",
-                    "&:hover": { backgroundColor: "#151B2E" }
+                    "&:hover": { backgroundColor: (t) => alpha(t.palette.text.primary, 0.04) },
+                    "&.Mui-selected, &.Mui-selected:hover": { backgroundColor: alpha("#F59E0B", 0.08) }
                   },
-                  "& .MuiDataGrid-footerContainer": {
-                    borderTop: "1px solid",
-                    borderColor: "divider",
-                    backgroundColor: "#0D1220",
-                    color: "text.primary"
-                  },
-                  "& .MuiTablePagination-root": { color: "text.primary" },
                   "& .MuiCheckbox-root": { color: "text.secondary" },
-                  "& .MuiDataGrid-filler": { backgroundColor: "background.paper" },
-                  "& .MuiDataGrid-scrollbarFiller": { backgroundColor: "background.paper" }
+                  "& .MuiCheckbox-root.Mui-checked, & .MuiCheckbox-root.MuiCheckbox-indeterminate": { color: "warning.main" },
+                  "& .MuiDataGrid-footerContainer": { backgroundColor: "transparent", borderColor: "divider" },
+                  "& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within": { outline: "none" }
                 }}
               />
             </Box>
@@ -752,7 +730,7 @@ function Applications() {
         </CardContent>
       </Card>
 
-      {/* Phase 3 — Bulk Actions floating bar, slides in only when rows are selected */}
+      {/* Bulk action bar */}
       <Grow in={selectionModel.length > 0} unmountOnExit>
         <Box
           sx={{
@@ -766,10 +744,9 @@ function Applications() {
             gap: 1.5,
             px: 2.5,
             py: 1.3,
-            borderRadius: 4,
-            backgroundColor: "#0D1220",
-            border: "1px solid",
-            borderColor: "rgba(99,102,241,0.35)",
+            borderRadius: R.card,
+            bgcolor: "background.paper",
+            border: `1px solid ${alpha("#6366F1", 0.4)}`,
             boxShadow: "0 12px 32px rgba(0,0,0,0.45)"
           }}
         >
@@ -777,10 +754,8 @@ function Applications() {
             label={`${selectionModel.length} selected`}
             size="small"
             sx={{
-              bgcolor: "rgba(99,102,241,0.15)",
-              color: "primary.light",
-              border: "1px solid rgba(99,102,241,0.3)",
-              fontWeight: 700
+              borderRadius: R.pill, fontWeight: 700, color: "primary.light",
+              bgcolor: alpha("#6366F1", 0.15), border: `1px solid ${alpha("#6366F1", 0.3)}`
             }}
           />
 
@@ -789,17 +764,18 @@ function Applications() {
             value={bulkStatus}
             onChange={(e) => setBulkStatus(e.target.value)}
             sx={{
-              minWidth: 140,
-              color: "#fff",
-              backgroundColor: "#151B2E",
-              borderRadius: 2,
-              "& .MuiOutlinedInput-notchedOutline": { borderColor: "divider" },
-              "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#2A3447" }
+              minWidth: 150,
+              borderRadius: R.tile,
+              bgcolor: "background.default",
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: "divider" }
             }}
           >
             {STATUS_OPTIONS.map((s) => (
               <MenuItem key={s} value={s}>
-                {s}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: statusColor(s) }} />
+                  {s}
+                </Box>
               </MenuItem>
             ))}
           </Select>
@@ -809,20 +785,10 @@ function Applications() {
             size="small"
             disabled={bulkUpdating}
             startIcon={
-              bulkUpdating ? (
-                <CircularProgress size={14} sx={{ color: "#fff" }} />
-              ) : (
-                <DoneAllIcon sx={{ fontSize: 16 }} />
-              )
+              bulkUpdating ? <CircularProgress size={14} color="inherit" /> : <DoneAllIcon sx={{ fontSize: 16 }} />
             }
             onClick={handleBulkStatusUpdate}
-            sx={{
-              textTransform: "none",
-              borderRadius: 2,
-              fontWeight: 700,
-              bgcolor: "primary.main",
-              "&:hover": { bgcolor: "primary.dark" }
-            }}
+            sx={{ textTransform: "none", borderRadius: R.tile, fontWeight: 700, boxShadow: "none" }}
           >
             {bulkUpdating ? "Updating..." : "Apply"}
           </Button>
@@ -834,7 +800,7 @@ function Applications() {
                 setSelectionModel([]);
                 setGridKey((k) => k + 1);
               }}
-              sx={{ color: "text.secondary", "&:hover": { color: "#fff" } }}
+              sx={{ color: "text.secondary", "&:hover": { color: "text.primary" } }}
             >
               <CloseIcon fontSize="small" />
             </IconButton>
@@ -842,43 +808,33 @@ function Applications() {
         </Box>
       </Grow>
 
+      {/* Delete dialog */}
       <Dialog
-        open={deleteOpen}
-        onClose={() => {
-          if (!deleting) setDeleteOpen(false);
-        }}
+        open={!!deleteTarget}
+        onClose={() => !deleting && setDeleteTarget(null)}
         fullWidth
         maxWidth="xs"
         TransitionComponent={Fade}
         transitionDuration={220}
-        PaperProps={{
-          sx: {
-            backgroundColor: "#0D1220",
-            color: "#fff",
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 3
-          }
-        }}
+        PaperProps={dialogPaper}
       >
         <DialogTitle sx={{ fontWeight: 700 }}>Delete Application</DialogTitle>
         <DialogContent>
-          <Divider sx={{ borderColor: "divider", mb: 2 }} />
+          <Divider sx={{ mb: 2 }} />
           <Typography>
-            Are you sure you want to delete the application for{" "}
-            <b>{deleteTarget?.jobTitle || "this job"}</b>
-            {deleteTarget?.companyName ? ` at ${deleteTarget.companyName}` : ""}?
+            Delete the application for <b>{deleteTarget?.jobTitle || "this job"}</b>
+            {deleteTarget?.companyName ? ` at ${deleteTarget.companyName}` : ""}
+            {deleteTarget?.studentName ? ` by ${deleteTarget.studentName}` : ""}?
           </Typography>
-          <Typography sx={{ mt: 1, color: "text.secondary" }}>
-            This action cannot be undone.
-          </Typography>
+          <Typography sx={{ mt: 1, color: "text.secondary" }}>This action cannot be undone.</Typography>
         </DialogContent>
         <DialogActions sx={{ p: 2.5 }}>
           <Button
-            onClick={() => setDeleteOpen(false)}
+            onClick={() => setDeleteTarget(null)}
             variant="outlined"
+            color="inherit"
             disabled={deleting}
-            sx={{ borderColor: "divider", color: "#fff" }}
+            sx={{ borderRadius: R.tile }}
           >
             Cancel
           </Button>
@@ -886,11 +842,7 @@ function Applications() {
             onClick={handleConfirmDelete}
             variant="contained"
             disabled={deleting}
-            sx={{
-              bgcolor: "#EF4444",
-              transition: "background-color 0.15s ease",
-              "&:hover": { bgcolor: "#DC2626" }
-            }}
+            sx={{ borderRadius: R.tile, bgcolor: "#EF4444", "&:hover": { bgcolor: "#DC2626" } }}
           >
             {deleting ? "Deleting..." : "Delete"}
           </Button>
@@ -901,4 +853,3 @@ function Applications() {
 }
 
 export default Applications;
-//UI/UX REDESIGN NEEDED FOR THESE PAGE

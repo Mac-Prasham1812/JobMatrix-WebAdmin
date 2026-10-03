@@ -1,11 +1,21 @@
-import { Box, Toolbar } from "@mui/material";
-import { useState } from "react";
+import { Box, Toolbar, useMediaQuery } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import { useEffect, useState } from "react";
 
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 
 function AdminLayout({ children }) {
-  const [open, setOpen] = useState(true);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
+  // Desktop: sidebar expanded by default. Mobile: drawer closed by default.
+  const [open, setOpen] = useState(() => window.innerWidth >= 900);
+
+  // Reset when crossing the breakpoint (rotate phone, resize window)
+  useEffect(() => {
+    setOpen(!isMobile);
+  }, [isMobile]);
 
   return (
     <Box
@@ -14,7 +24,7 @@ function AdminLayout({ children }) {
         minHeight: "100vh",
         backgroundColor: "#0A0E1A",
         position: "relative",
-        overflow: "hidden"
+        overflowX: "hidden"
       }}
     >
       <Box
@@ -32,8 +42,8 @@ function AdminLayout({ children }) {
             position: "absolute",
             top: "-10%",
             left: "-5%",
-            width: 520,
-            height: 520,
+            width: { xs: 320, md: 520 },
+            height: { xs: 320, md: 520 },
             borderRadius: "50%",
             background: "radial-gradient(circle, rgba(99,102,241,0.16), transparent 70%)",
             filter: "blur(10px)",
@@ -45,8 +55,8 @@ function AdminLayout({ children }) {
             position: "absolute",
             top: "10%",
             right: "-8%",
-            width: 480,
-            height: 480,
+            width: { xs: 300, md: 480 },
+            height: { xs: 300, md: 480 },
             borderRadius: "50%",
             background: "radial-gradient(circle, rgba(168,85,247,0.14), transparent 70%)",
             filter: "blur(10px)",
@@ -58,8 +68,8 @@ function AdminLayout({ children }) {
             position: "absolute",
             bottom: "-15%",
             left: "30%",
-            width: 460,
-            height: 460,
+            width: { xs: 280, md: 460 },
+            height: { xs: 280, md: 460 },
             borderRadius: "50%",
             background: "radial-gradient(circle, rgba(34,197,94,0.10), transparent 70%)",
             filter: "blur(10px)",
@@ -68,23 +78,25 @@ function AdminLayout({ children }) {
         />
       </Box>
 
-      <Topbar open={open} setOpen={setOpen} />
-      <Sidebar open={open} />
+      <Topbar open={open} setOpen={setOpen} isMobile={isMobile} />
+      <Sidebar open={open} setOpen={setOpen} isMobile={isMobile} />
 
       <Box
         component="main"
         sx={{
           flexGrow: 1,
+          // minWidth 0 lets wide tables scroll inside their own box instead of stretching the page
+          minWidth: 0,
           width: "100%",
-          px: { xs: 2.5, sm: 3.5, md: 5 },
-          py: 4,
+          px: { xs: 1.75, sm: 3.5, md: 5 },
+          py: { xs: 2.5, md: 4 },
           minHeight: "100vh",
           position: "relative",
           zIndex: 1,
           animation: "fadeUp 0.4s ease"
         }}
       >
-        <Toolbar sx={{ minHeight: 66, mb: 1 }} />
+        <Toolbar sx={{ minHeight: { xs: 56, sm: 66 }, mb: 1 }} />
         {children}
       </Box>
     </Box>
